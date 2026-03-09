@@ -232,7 +232,8 @@ var velocitySelectVisible = false;
 // Define a global variable to store the time to next point
 var timeToNextPoint = 'N/A';
 var velocitySelect = 'walk';
-let isDrawingMode = false; // Flag to track drawing mode
+let isDrawingMode = false; // Flag to track auto-drawing (snapping) mode
+let isManualDrawingMode = false; // Flag to track manual-drawing mode
 
 // Virtual Joystick Variables
 let joystick = null;
@@ -349,7 +350,7 @@ async function initializeMap(userLocale) {
     map.on('dblclick', handleMapDoubleClick);
 
     // Set the zoom level to 4
-    map.setZoom(4);
+    map.setZoom(20);
 
     // // Use Stadia Maps as the tile layer
     // L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png', {
@@ -615,6 +616,14 @@ async function initializeMap(userLocale) {
                 isDrawingMode = !isDrawingMode;
 
                 if (isDrawingMode) {
+                    // Disable manual mode if active
+                    if (isManualDrawingMode) {
+                        isManualDrawingMode = false;
+                        map.off('click', handleManualMapClick);
+                        manualDrawButton.button.innerHTML = '<i class="lni lni-pencil-alt"></i>';
+                        manualDrawButton.button.classList.remove('active');
+                    }
+
                     map.on('click', handleMapClick); // Enable drawing mode
                     btn.button.innerHTML = '<i class="lni lni-pencil"></i>'; // Change icon to pencil when drawing mode is enabled
                     btn.button.classList.add('active'); // Add active class for styling
@@ -642,7 +651,50 @@ async function initializeMap(userLocale) {
     fileLayerControlContainer.appendChild(drawPolylineButton.button);
 
     // Add the custom class to the EasyButton's container element
-    drawPolylineButton.button.classList.add('leaflet-control-filelayer-custom');
+    // Create the manual drawing button using EasyButton
+    var manualDrawButton = L.easyButton({
+        states: [{
+            stateName: 'draw-manual',
+            icon: '<i class="lni lni-pencil-alt"></i>',
+            title: 'Manual Path (No Snapping)',
+            onClick: function (btn, map) {
+                isManualDrawingMode = !isManualDrawingMode;
+
+                if (isManualDrawingMode) {
+                    // Disable other modes
+                    if (isDrawingMode) {
+                        isDrawingMode = false;
+                        map.off('click', handleMapClick);
+                        drawPolylineButton.button.innerHTML = '<i class="lni lni-travel"></i>';
+                        drawPolylineButton.button.classList.remove('active');
+                    }
+
+                    map.on('click', handleManualMapClick);
+                    btn.button.innerHTML = '<i class="lni lni-save"></i>'; // Change to save/check icon
+                    btn.button.classList.add('active');
+                    map.getContainer().style.cursor = 'crosshair';
+                } else {
+                    map.off('click', handleManualMapClick);
+                    btn.button.innerHTML = '<i class="lni lni-pencil-alt"></i>';
+                    btn.button.classList.remove('active');
+                    map.getContainer().style.cursor = '';
+                }
+            }
+        }]
+    });
+
+    manualDrawButton.button.style.fontSize = '24px';
+    manualDrawButton.button.style.paddingLeft = '4px';
+    manualDrawButton.addTo(map);
+
+    // Get the container of your existing Leaflet control
+    var fileLayerControlContainer = document.querySelector('.leaflet-control-filelayer');
+
+    // Add the EasyButton's container element to the existing control container
+    fileLayerControlContainer.appendChild(manualDrawButton.button);
+
+    // Add the custom class to the EasyButton's container element
+    manualDrawButton.button.classList.add('leaflet-control-filelayer-custom');
 
     //===========
 
@@ -810,11 +862,16 @@ async function initializeMap(userLocale) {
             title: 'Clear markers',
             onClick: function (btn, map) {
                 // Logic to clear the layers and reset values
-                drawnItems.clearLayers(); // Clear layers from map including the textbox
+                drawnItems.clearLayers(); // Clear layers from map
                 lineLatLngs = []; // Clear array storing coordinates
                 isPlaybackStopped = true; // Stop playback if active
                 playbackIndex = 0;
-                console.log("Trash: isPlaybackStopped", isPlaybackStopped);
+                interpolationStep = 0; // Reset interpolation
+                currentSegmentPoints = []; // Reset sub-points
+                gpxMarker = null; // Clear marker reference
+                wasPlaybackPaused = false;
+
+                console.log("Trash: reset all playback states");
 
                 // Hide the textbox if it exists
                 var textbox = document.getElementById('timeToPointText');
@@ -844,7 +901,7 @@ async function initializeMap(userLocale) {
 
 
 
-    // Function to handle map click for drawing polyline
+    // Function to handle map click for drawing polyline (Auto Snapping)
     function handleMapClick(event) {
         if (!isDrawingMode) return; // Exit if not in drawing mode
         const { lat, lng } = event.latlng; // Get latitude and longitude
@@ -861,47 +918,95 @@ async function initializeMap(userLocale) {
         }
     }
 
+    // Function to handle map click for manual drawing (No Snapping)
+    function handleManualMapClick(event) {
+        if (!isManualDrawingMode) return;
+        const { lat, lng } = event.latlng;
+        lineLatLngs.push([lat, lng]);
+
+        if (lineLatLngs.length >= 2) {
+            const lastPointIdx = lineLatLngs.length - 2;
+            const startPoint = lineLatLngs[lastPointIdx];
+            const endPoint = lineLatLngs[lastPointIdx + 1];
+
+            // Draw a simple polyline directly between points
+            L.polyline([startPoint, endPoint], { color: 'green', weight: 5 }).addTo(drawnItems);
+        } else {
+            // Add a small temporary marker to show the first point
+            L.circleMarker([lat, lng], { radius: 3, color: 'green' }).addTo(drawnItems);
+        }
+    }
 
 
 
 
-    // Function to process next point in GPX data
+
+    // Function to process next point in GPX data with smooth interpolation
+    let interpolationStep = 0;
+    let currentSegmentPoints = [];
+    const INTERPOLATION_INTERVAL = 100; // 100ms for smooth updates
+
     function processNextPoint() {
-        console.log("process next point");
-        console.log("Velocity is set to: ", velocitySelect);
+        if (isPlaybackStopped) return;
 
-        if (playbackIndex >= lineLatLngs.length || isPlaybackStopped) return; // End condition
+        // If we finished the current segment or just started
+        if (interpolationStep >= currentSegmentPoints.length) {
+            if (playbackIndex >= lineLatLngs.length - 1) {
+                // Reached the very end of the line
+                isPlaybackStopped = true;
 
-        const [lat, lng] = lineLatLngs[playbackIndex]; // Get coordinates for current point
-        console.log(`Processing point ${playbackIndex + 1} of ${lineLatLngs.length}: (${lat}, ${lng})`); // Log current point
+                // Sync the main (blue) marker to the final position
+                const finalLat = lineLatLngs[lineLatLngs.length - 1][0];
+                const finalLng = lineLatLngs[lineLatLngs.length - 1][1];
+                if (marker) {
+                    marker.setLatLng([finalLat, finalLng]);
+                }
+                setCoordinatesUI(finalLat, finalLng);
 
+                playbackIndex = 0;
+                interpolationStep = 0;
+                wasPlaybackPaused = false;
+                playbackButton.state('play'); // Change button state without triggering onClick
+                return;
+            }
+
+            // Calculate interpolation points for the next segment
+            const start = lineLatLngs[playbackIndex];
+            const end = lineLatLngs[playbackIndex + 1];
+            const distance = calculateDistance(start[0], start[1], end[0], end[1]);
+            const speedKmh = (velocitySelect === 'walk' ? 6 : (velocitySelect === 'run' ? 12 : (velocitySelect === 'ride' ? 20 : (velocitySelect === 'drive' ? 50 : parseFloat(velocitySelect) || 18))));
+            const totalTimeSec = (distance / speedKmh) * 3600;
+            const numSteps = Math.max(1, Math.ceil(totalTimeSec * 1000 / INTERPOLATION_INTERVAL));
+
+            currentSegmentPoints = [];
+            for (let i = 1; i <= numSteps; i++) {
+                const ratio = i / numSteps;
+                currentSegmentPoints.push([
+                    start[0] + (end[0] - start[0]) * ratio,
+                    start[1] + (end[1] - start[1]) * ratio
+                ]);
+            }
+
+            interpolationStep = 0;
+            playbackIndex++; // Move to next vertex for next time
+        }
+
+        // Get the next interpolated point
+        const [lat, lng] = currentSegmentPoints[interpolationStep];
+        interpolationStep++;
+
+        // Update UI and Backend
         if (!gpxMarker || !map.hasLayer(gpxMarker)) {
-            // Create marker if it doesn't exist or has been removed
             gpxMarker = L.marker([lat, lng], { icon: orangeIcon }).addTo(drawnItems);
         } else {
-            // Update marker position
             gpxMarker.setLatLng([lat, lng]);
         }
 
-        setCoordinates(lat, lng); // Set coordinates
-        setLocationArrows();
+        syncLocation(lat, lng);
+        map.panTo([lat, lng]); // Auto-pan to follow
 
-        //const velocity = document.getElementById('velocitySelect').value; // Get selected velocity
-        const velocity = velocitySelect;
-        const distance = playbackIndex > 0 ?
-            calculateDistance(lineLatLngs[playbackIndex - 1][0], lineLatLngs[playbackIndex - 1][1], lat, lng) :
-            0; // Calculate distance from previous point
-        timeToNextPoint = calculateTime(distance, velocity); // Update global variable with time to next point
-
-        console.log(`Time to next point: ${timeToNextPoint} seconds`); // Log time to next point
-        // Emit an event to indicate playback status change
-        map.fire('playbackchange');
-
-        // Increment index and process next point after time interval
-        setTimeout(() => {
-            playbackIndex++;
-            processNextPoint();
-        }, timeToNextPoint * 1000); // Convert time to milliseconds
+        // Schedule next sub-step
+        setTimeout(processNextPoint, INTERPOLATION_INTERVAL);
     }
 
     function calculateRoute(startPoint, endPoint) {
@@ -1374,7 +1479,7 @@ function calculateTime(distance, velocity) {
         "ride": 20,  // km/h
         "drive": 50  // km/h
     };
-    const speedKmh = speed[velocity] || speed["walk"]; // Default to walking speed if velocity is not found
+    const speedKmh = speed[velocity] || parseFloat(velocity) || 6;
 
     // Convert distance to kilometers and calculate time in seconds
     return (distance / speedKmh) * 3600;
