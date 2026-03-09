@@ -96,7 +96,7 @@ flask_port = 54321
 api_url = "https://projectzerothree.info/api.php?format=json"
 api_data = None
 user_locale = None
-location = None
+location = "23.10416999628627 120.35137049956495"
 rsd_data = None
 rsd_host = None
 rsd_port = None
@@ -962,8 +962,9 @@ def mount_developer_image():
         error_message = str(e)
         return jsonify({'error': error_message})
 
-async def set_location_thread(latitude, longitude):
-    global terminate_location_thread
+async def set_location_thread():
+    global terminate_location_thread, location
+    last_sent_location = None
 
     try:
         global rsd_host, rsd_port, udid, ios_version, connection_type
@@ -974,31 +975,49 @@ async def set_location_thread(latitude, longitude):
                 rsd_host = rsd_data['host']
                 rsd_port = rsd_data['port']
 
-                logger.info(f"RSD in udid mapping is: {rsd_data}")
-                logger.info("RSD already created. Reusing connection")
-                logger.info(f"RSD Data: {rsd_data}")
-
-
                 if ios_version is not None and is_major_version_17_or_greater(ios_version):
-                    async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
-                        async with DvtSecureSocketProxyService(sp_rsd) as dvt:
-                            await LocationSimulation(dvt).set(latitude, longitude)
-                            logger.warning("Location Set Successfully")
-                            #OSUTILS.wait_return()
-                            while not terminate_location_thread:
-                                await asyncio.sleep(0.5)
-
+                    while not terminate_location_thread:
+                        try:
+                            async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
+                                async with DvtSecureSocketProxyService(sp_rsd) as dvt:
+                                    simulation = LocationSimulation(dvt)
+                                    last_sent_location = None
+                                    while not terminate_location_thread:
+                                        if location != last_sent_location and location:
+                                            try:
+                                                latitude, longitude = location.split()
+                                                await simulation.set(float(latitude), float(longitude))
+                                                last_sent_location = location
+                                                logger.debug(f"Location updated to {location}")
+                                            except Exception as e:
+                                                logger.error(f"Inner simulation loop error: {e}")
+                                                break # Break to outer loop to reconnect
+                                        await asyncio.sleep(0.1)
+                        except Exception as e:
+                            logger.error(f"Outer simulation service error: {e}. Retrying in 1s...")
+                            await asyncio.sleep(1.0)
 
                 elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
-                    async with DvtSecureSocketProxyService(lockdown=lockdown) as dvt:
-                        await LocationSimulation(dvt).clear()
-                        await LocationSimulation(dvt).set(latitude, longitude)
-                        logger.warning("Location Set Successfully")
-                        #await asyncio.wait_for(OSUTILS.wait_return(), timeout=1)  # Adjust timeout as needed
-                        while not terminate_location_thread:
-                            await asyncio.sleep(0.5)
-
-                await asyncio.sleep(1)  # Adjust sleep time according to your requirements
+                    while not terminate_location_thread:
+                        try:
+                            async with DvtSecureSocketProxyService(lockdown=lockdown) as dvt:
+                                simulation = LocationSimulation(dvt)
+                                await simulation.clear()
+                                last_sent_location = None
+                                while not terminate_location_thread:
+                                    if location != last_sent_location and location:
+                                        try:
+                                            latitude, longitude = location.split()
+                                            await simulation.set(float(latitude), float(longitude))
+                                            last_sent_location = location
+                                            logger.debug(f"Location updated to {location}")
+                                        except Exception as e:
+                                            logger.error(f"Inner simulation loop error: {e}")
+                                            break # Break to outer loop to reconnect
+                                    await asyncio.sleep(0.1)
+                        except Exception as e:
+                            logger.error(f"Outer simulation service error: {e}. Retrying in 1s...")
+                            await asyncio.sleep(1.0)
 
     except asyncio.CancelledError:
         # Handle cancellation gracefully
@@ -1010,34 +1029,28 @@ async def set_location_thread(latitude, longitude):
         logger.error(f"Error setting location: {e}")
 
 
+# Variables to track the location thread
+location_thread_instance = None
+
 # Function to start the set_location_thread in a separate thread
-def start_set_location_thread(latitude, longitude):
-    global terminate_location_thread
-    # Stop existing threads
-    stop_set_location_thread()
+def start_set_location_thread():
+    global terminate_location_thread, location_thread_instance
+    
+    # If a thread is already running and not terminated, just return
+    if location_thread_instance and location_thread_instance.is_alive() and not terminate_location_thread:
+        return
 
     # Reset the terminate flag before starting the thread
     terminate_location_thread = False
 
-
-
     # Define a helper function to run the async function in the thread
     async def run_async_function():
-        await set_location_thread(latitude, longitude)
-
-    # Define a function to periodically check if the thread should terminate
-    def check_termination():
-        while not terminate_location_thread:
-            asyncio.run(asyncio.sleep(1))  # Adjust sleep time as needed
-        logger.info("Location Thread Terminated")
+        await set_location_thread()
 
     # Create a new thread and start it
-    location_thread = threading.Thread(target=lambda: asyncio.run(run_async_function()))
-    location_thread.start()
-
-    # Create a new thread for checking termination
-    termination_thread = threading.Thread(target=check_termination)
-    termination_thread.start()
+    location_thread_instance = threading.Thread(target=lambda: asyncio.run(run_async_function()))
+    location_thread_instance.start()
+    logger.info("Persistent Location Thread Started")
 
 
 # Function to stop the location thread
@@ -1057,34 +1070,32 @@ def set_location():
         global udid, connection_type
         global ios_version
 
+        data = request.get_json()
+        # Allow combined request: update location AND trigger set_location
+        if data and 'lat' in data and 'lng' in data:
+            location = f"{float(data['lat'])} {float(data['lng'])}"
+            logger.debug(f"Combined set_location call with: {location}")
+
         if ios_version is not None and is_major_version_17_or_greater(ios_version):
-            # Split the location string into latitude and longitude
-            latitude, longitude = location.split()
-
-            #asyncio.run(set_location_thread(latitude, longitude))
-            start_set_location_thread(latitude, longitude)
-
+            if not location:
+                return jsonify({'error': 'No location set'}), 400
+            start_set_location_thread()
             return 'Location set successfully'
 
         elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
-            global lockdown
-            # Split the location string into latitude and longitude
-            latitude, longitude = location.split()
-
+            if not location:
+                return jsonify({'error': 'No location set'}), 400
             mount_developer_image()
-            #asyncio.run(set_location_thread(latitude, longitude))
-            start_set_location_thread(latitude, longitude)
-
-
+            start_set_location_thread()
             return 'Location set successfully'
 
         else:
-            # Invalid ios_version
-            return jsonify({'error': 'No iOS version present'})
+            return jsonify({'error': 'No iOS version present'}), 400
 
     except Exception as e:
         error_message = str(e)
-        return jsonify({'error': error_message})
+        logger.error(f"Error in /set_location route: {error_message}")
+        return jsonify({'error': error_message}), 500
 
 
 @app.route('/stop_location', methods=['POST'])
