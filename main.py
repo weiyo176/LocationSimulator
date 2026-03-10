@@ -1,4 +1,6 @@
+import json
 import locale
+
 import os
 import re
 import sys
@@ -141,11 +143,23 @@ if current_platform == "darwin":
         sudo_message = "Not running as Sudo, this probably isn't going to work"
     else:
         logger.info("Running as Sudo")
-        sudo_message = ""
+# Load config from config.json
+config_path = os.path.join(base_directory, 'config.json')
+if not os.path.exists(config_path):
+    # Fallback to current directory if base_directory has it elsewhere
+    config_path = 'config.json'
 
+try:
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+        google_maps_api_key = config.get('google_maps_api_key', '')
+except Exception as e:
+    logger.error(f"Error loading config.json: {e}")
+    google_maps_api_key = ''
 
 
 def fetch_api_data(api_url):
+
     global api_data
     try:
         api_data = requests.get(api_url, verify=False).json()
@@ -281,10 +295,10 @@ async def start_tcp_tunnel(service_provider) -> None:
         lockdown = await create_using_usbmux(udid, autopair=True)
         logger.info(f"TCP Tunnel lockdown: {lockdown}")
 
-        # ✅ 正确方式：用 remotepairing 建立 CoreDeviceTunnelService
-        service = await create_core_device_tunnel_service_using_remotepairing(lockdown)
+        # ✅ 正確方式：針對 USB Lockdown 連線建立 CoreDeviceTunnelService 代理
+        service = await CoreDeviceTunnelProxy.create(lockdown)
 
-        async with start_tunnel_over_core_device(service, protocol=TunnelProtocol.TCP) as tunnel_result:
+        async with service.start_tcp_tunnel() as tunnel_result:
             resume_remoted_if_required()
             rsd_host = tunnel_result.address
             rsd_port = str(tunnel_result.port)
@@ -1424,7 +1438,7 @@ def index():
     return render_template('map2.html', version_message=version_message, github_broadcast=github_broadcast,
                            user_locale=user_locale, app_version_num=APP_VERSION_NUMBER,
                            app_version_type=APP_VERSION_TYPE, error_message=error_message, current_platform=platform,
-                           sudo_message=sudo_message)
+                           sudo_message=sudo_message, google_maps_api_key=google_maps_api_key)
 
 
 def open_browser():

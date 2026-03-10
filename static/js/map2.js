@@ -363,25 +363,31 @@ async function initializeMap(userLocale) {
     // Add default tile layer
     stadiaTileLayer.addTo(map);
 
+    // Google Maps layers
+    var googleRoadmap = L.gridLayer.googleMutant({
+        type: 'roadmap'
+    });
+    var googleSatellite = L.gridLayer.googleMutant({
+        type: 'satellite'
+    });
+    var googleHybrid = L.gridLayer.googleMutant({
+        type: 'hybrid'
+    });
+    var googleTerrain = L.gridLayer.googleMutant({
+        type: 'terrain'
+    });
+
     // Define tile layer control options
     var baseLayers = {
         "Stadia Maps": stadiaTileLayer,
-        "OpenStreetMap": openStreetMapTileLayer,
+        "Google Roadmap": googleRoadmap,
+        "Google Satellite": googleSatellite,
+        "Google Hybrid": googleHybrid,
+        "Google Terrain": googleTerrain,
         "OpenStreetMap_HOT": OpenStreetMap_HOT,
-        "OPNVKarte": OPNVKarte,
         "Stadia Alidade Smooth": Stadia_AlidadeSmooth,
-        "Stadia Alidade Smooth Dark": Stadia_AlidadeSmoothDark,
-        "Stadia Alidade Satellite": Stadia_AlidadeSatellite,
         "Stadia Outdoors": Stadia_Outdoors,
-        "Stadia Stamen Toner": Stadia_StamenToner,
-        "Stadia Stamen Watercolor": Stadia_StamenWatercolor,
-        "Stadia Stamen Terrain": Stadia_StamenTerrain,
-        "Esri World Street Map": Esri_WorldStreetMap,
-        "Esri World Topo Map": Esri_WorldTopoMap,
-        "Esri World Imagery": Esri_WorldImagery,
         "CartoDB Voyager": CartoDB_Voyager,
-
-
     };
 
     // Add layer control to map

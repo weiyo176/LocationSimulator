@@ -20,6 +20,23 @@
         src="https://cdn.jsdelivr.net/npm/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-easybutton@2.4.0/src/easy-button.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.0/dist/socket.io.min.js"></script>
+
+    <!-- Google Maps JS API -->
+    <script>(g => {
+            var h, a, k, p = "The Google Maps JavaScript API", c = "google", l = "importLibrary", q = "__ib__", m = document, b = window; b = b[c] || (b[c] = {}); var d = b.maps || (b.maps = {}), r = new Set, e = new URLSearchParams, u = () => h || (h = new Promise(async (f, n) => {
+                await (a = m.createElement("script")); e.set("libraries", [...r] + ""); for (k in g) e.set(k.replace(/[A-Z]/g, t => "_" + t[0].toLowerCase()), g[k]); e.set("callback", c + ".maps." + q); a.src = `https://maps.${c}apis.com/maps/api/js?` + e; d[q] = f; a.onerror = () => h = n(Error(p + " could not load.")); a.nonce = m.querySelector("script[nonce]")?.nonce || ""; m.head.append(a)
+            })); d[l] ? console.warn(p + " only loads once. Ignoring:", g) : d[l] = (f, ...n) => r.add(f) && u().then(() => d[l](f, ...n))
+        })
+            ({ key: "{{ google_maps_api_key }}", v: "weekly" });</script>
+    <script>
+        // Ensure the maps library is loaded for plugins that expect it
+        google.maps.importLibrary("maps").then(() => {
+            console.log("Google Maps library loaded successfully.");
+        });
+    </script>
+
+    <!-- Leaflet.GoogleMutant -->
+    <script src="https://unpkg.com/leaflet.gridlayer.googlemutant@latest/dist/Leaflet.GoogleMutant.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
         crossorigin="anonymous">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
@@ -44,7 +61,8 @@
         current_platform: "{{ current_platform }}",
         user_locale: "{{ user_locale }}",
         sudo_message: "{{ sudo_message }}",
-        app_version: "{{ app_version_num }}"
+        app_version: "{{ app_version_num }}",
+        google_maps_api_key: "{{ google_maps_api_key }}"
     };
 </script>
 
@@ -55,11 +73,11 @@
 
 
 <body>
-    {% if version_message %}
+    <!-- {% if version_message %}
     <div class="alert alert-warning glassmorphic-card" role="alert">{{ version_message }}</div>
     {% endif %}
     {% if github_broadcast %}
-    <div class="alert alert-info glassmorphic-card" role="alert">{{ github_broadcast|safe }}</div>
+    <div class="alert alert-info glassmorphic-card" role="alert">{{ github_broadcast|safe }}</div> -->
     {% endif %}
     {% if timeout_message %}
     <div class="alert alert-warning glassmorphic-card" role="alert">{{ timeout_message }}</div>
@@ -168,11 +186,11 @@
         </div>
 
         <div id="dataList" class="mb-3 glassmorphic-card"></div>
-        <div class="d-flex flex-row gap-3 joystick-container-wrapper">
-            <div id="joystick-wrapper" class="glassmorphic-card d-flex align-items-center justify-content-center">
+        <div class="joystick-map-combined-container glassmorphic-card d-flex flex-row overflow-hidden">
+            <div id="joystick-wrapper" class="d-flex align-items-center justify-content-center border-end">
                 <div id="joystick-zone"></div>
             </div>
-            <div id="map" class="glassmorphic-card flex-grow-1"></div>
+            <div id="map" class="flex-grow-1"></div>
         </div>
         <br>
         <div class="mb-3 glassmorphic-card" id="loc-search">
@@ -204,35 +222,11 @@
         </div>
     </div>
 
-    <!-- Buy Me A Coffee button -->
-    <div class="row justify-content-center">
-        <div class="col-6 text-center">
-            <p></p>
-            <a href="https://www.buymeacoffee.com/davesc63" class="glassmorphic-card p-2 d-inline-block">
-                <img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20beer&emoji=🍺&slug=davesc63&button_colour=FFDD00&font_family=Poppins&font_colour=000000&outline_colour=000000&coffee_colour=ffffff"
-                    alt="Buy me a beer">
-            </a>
 
-            <a href="https://discord.gg/genRca55Nb" class="glassmorphic-card p-2 d-inline-block">
-                <img src="https://img.buymeacoffee.com/button-api/?text=Join%20Discord&emoji=💬&slug=davesc63&button_colour=5865F2&font_family=Poppins&font_colour=FFFFFF&outline_colour=000000&coffee_colour=ffffff"
-                    alt="Join the Discord">
-
-            </a>
-            <a href="https://refer-nordvpn.com/xapBpLZOcZv" class="glassmorphic-card p-2 d-inline-block">
-                <img src="https://img.buymeacoffee.com/button-api/?text=Get%20NordVPN&emoji=🔐&slug=davesc63&button_colour=2E52A3&font_colour=FFFFFF&font_family=Poppins&outline_colour=CCCCCC&coffee_colour=ffffff"
-                    alt="Get NordVPN free">
-
-
-            </a>
-        </div>
-    </div>
 
     <br>
 
     <hr>
-    Version: {{ app_version_num }}<br>
-    Need help? Please see the <a href="https://github.com/davesc63/GeoPort/blob/main/FAQ.md" target="_blank">FAQ</a><br>
-    Feedback? Please see the <a href="https://www.surveymonkey.com/r/5LJR2M5" target="_blank">Survey</a>
 
     <!-- All existing modal codes remain unchanged -->
     <!-- Keeping all modal divs as they were in original HTML -->
