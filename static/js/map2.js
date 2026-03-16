@@ -1,4 +1,4 @@
-﻿//=========================== leaflet menu ====================
+//=========================== leaflet menu ====================
 L.Control.LeafletMenu = L.Control.extend({
     options: {
         mapId: "map",
@@ -348,6 +348,11 @@ async function initializeMap(userLocale) {
     setCoordinatesUI(initialLat, initialLng);
 
     map.on('dblclick', handleMapDoubleClick);
+    map.on('click', (e) => {
+        if (!isDrawingMode && !isManualDrawingMode) {
+            handleMapDoubleClick(e);
+        }
+    });
 
     // Set the zoom level to 4
     map.setZoom(20);
@@ -359,9 +364,6 @@ async function initializeMap(userLocale) {
     //     attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> contributors'
     // }).addTo(map);
 
-
-    // Add default tile layer
-    stadiaTileLayer.addTo(map);
 
     // Google Maps layers
     var googleRoadmap = L.gridLayer.googleMutant({
@@ -377,13 +379,16 @@ async function initializeMap(userLocale) {
         type: 'terrain'
     });
 
+    // Add default tile layer
+    googleRoadmap.addTo(map);
+
     // Define tile layer control options
     var baseLayers = {
-        "Stadia Maps": stadiaTileLayer,
         "Google Roadmap": googleRoadmap,
         "Google Satellite": googleSatellite,
         "Google Hybrid": googleHybrid,
         "Google Terrain": googleTerrain,
+        "Stadia Maps": stadiaTileLayer,
         "OpenStreetMap_HOT": OpenStreetMap_HOT,
         "Stadia Alidade Smooth": Stadia_AlidadeSmooth,
         "Stadia Outdoors": Stadia_Outdoors,

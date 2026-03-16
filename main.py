@@ -1459,6 +1459,18 @@ def is_port_in_use(port):
     #         return True  # Port is already in use
 
 
+def get_local_ip():
+    try:
+        # Create a dummy socket to find the local IP address
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
 # Define try_bind_listener_on_free_port function
 def try_bind_listener_on_free_port():
     global chosen_port
@@ -1473,7 +1485,12 @@ def try_bind_listener_on_free_port():
 
     if is_port_in_use(chosen_port):
         chosen_port = random.randint(min_port, max_port)
+    
+    local_ip = get_local_ip()
     logger.info(f'Serving: http://localhost:{chosen_port}')
+    if local_ip != "127.0.0.1":
+        logger.info(f'Network: http://{local_ip}:{chosen_port} (Use this on your phone)')
+    
     return chosen_port
 
 

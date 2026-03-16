@@ -3,11 +3,12 @@
 
 <head>
     <title>GeoPort - Online Update</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://cdn.jsdelivr.net/npm/babel-polyfill@latest/dist/polyfill.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/whatwg-fetch@3.6.2/dist/fetch.umd.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.10.2/dist/umd/popper.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-providers@2.0.0/leaflet-providers.min.js"></script>
@@ -73,180 +74,143 @@
 
 
 <body>
-    <!-- {% if version_message %}
-    <div class="alert alert-warning glassmorphic-card" role="alert">{{ version_message }}</div>
-    {% endif %}
-    {% if github_broadcast %}
-    <div class="alert alert-info glassmorphic-card" role="alert">{{ github_broadcast|safe }}</div> -->
-    {% endif %}
-    {% if timeout_message %}
-    <div class="alert alert-warning glassmorphic-card" role="alert">{{ timeout_message }}</div>
-    {% endif %}
-    {% if error_message %}
-    <div class="alert alert-danger glassmorphic-card" role="alert">{{ error_message }}</div>
-    {% endif %}
-
-    <div class="container p-3">
-        <div class="d-flex justify-content-between align-items-center">
-            <h4 class="my-0">
-                &nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbspGeoPort
-                (Online Update Edition) - Your location, Anywhere!</h4>
-            <div>
-                <a id="about-btn" class="btn btn-outline-primary" href="#" title="GeoPort"
-                    style="display: none;">About</a>
-                <a id="exit-btn" class="btn btn-outline-primary ms-2" href="#" title="GeoPort"
-                    onclick="exitApp()">Exit</a>
-            </div>
-        </div>
-
-        <!-- Toggles for Dark Mode and Fuel Mode -->
-        <!-- Toggles for Dark Mode and Fuel Mode -->
-        <div class="d-flex flex-column align-items-end mt-3">
-            <div class="form-check form-switch mb-3"> <!-- Add margin-bottom to create space between the switches -->
-                <input class="form-check-input" type="checkbox" role="switch" id="darkModeSwitch"
-                    onchange="toggleDarkMode()">
-                <label class="form-check-label" for="darkModeSwitch">Dark Mode</label>
-            </div>
-
-            <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" id="enableFuelPrices"
-                    onchange="toggleFuelTypeVisibility()">
-                <label class="form-check-label" for="enableFuelPrices">Fuel Mode</label>
-            </div>
-
-        </div>
-
-
-        <!-- Connection dropdown hidden for debugging -->
-        <div class="mb-3" style="display: none;">
-            <label for="connection">Connection:</label><br>
-            <div class="row">
-                <div class="col">
-                    <select class="custom-select d-block w-100 glassmorphic-card" id="connection" required>
-                    </select>
+    <button class="sidebar-toggle-mobile" onclick="toggleSidebar()">
+        <i class="fas fa-bars"></i>
+    </button>
+    <div class="app-wrapper">
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">GeoPort</div>
+                <div class="d-flex gap-2 align-items-center">
+                    <a id="about-btn" class="btn btn-sm" href="#" title="GeoPort" style="display: none;">About</a>
+                    <button class="btn btn-sm sidebar-close-btn" onclick="toggleSidebar()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                    <a id="exit-btn" class="btn btn-sm btn-danger" href="#" title="Exit App"
+                        onclick="exitApp()">Exit</a>
                 </div>
             </div>
-        </div>
 
-        <div class="mt-3 glassmorphic-card" id="border">
-            <!-- Connect Device -->
-            {% if error_messages %}
-            <button type="button" class="btn" id="connect" onclick="connectDevice()" disabled>
-                <span id="connectText">Connect Device</span>
-            </button>
-            {% else %}
-            <form>
-                <div class="mb-3">
-                    <label for="device">Select Device:</label>
-                    <div class="row">
-                        <div class="col">
-                            <select class="custom-select glassmorphic-card" id="device" required></select>
-                        </div>
-                        <div class="col-auto">
-                            <button type="button" class="btn" id="refresh"
-                                onclick="populateDeviceList()">Refresh</button>
-                        </div>
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Environment</div>
+                <div class="d-flex flex-column gap-2">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="darkModeSwitch"
+                            onchange="toggleDarkMode()">
+                        <label class="form-check-label" for="darkModeSwitch">Dark Mode</label>
+                    </div>
+                    <!-- <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="enableFuelPrices"
+                            onchange="toggleFuelTypeVisibility()">
+                        <label class="form-check-label" for="enableFuelPrices">Fuel Mode</label>
+                    </div> -->
+                </div>
+            </div>
+
+            <div class="sidebar-section" id="connection-section">
+                <div class="sidebar-section-title">Device Connection</div>
+                {% if error_messages %}
+                <div class="alert alert-danger p-2 small">{{ error_messages }}</div>
+                <button type="button" class="btn w-100" id="connect" onclick="connectDevice()" disabled>
+                    <span id="connectText">Connect Device</span>
+                </button>
+                {% else %}
+                <div class="mb-2">
+                    <label for="device" class="form-label small">Select Device:</label>
+                    <div class="input-group">
+                        <select class="form-select form-select-sm" id="device" required></select>
+                        <select id="connection" style="display: none;"></select>
+                        <button type="button" class="btn btn-sm" id="refresh" onclick="populateDeviceList()">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
                     </div>
                 </div>
-            </form>
-            <button type="button" class="btn" id="connect" onclick="connectDevice()">
-                <span id="connectText">Connect Device</span>
-                <span id="spinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"
-                    style="display: none;"></span>
-            </button>
-            <button type="button" class="btn btn-danger" id="disconnect" onclick="disconnectDevice()"
-                style="display: none;">Disconnect</button>
-            <input class="form-control glassmorphic-card" type="text" id="rsdData" placeholder="RSD Data…" readonly
-                style="display: none;">
-            {% endif %}
-        </div>
+                <div class="d-flex flex-column gap-2">
+                    <button type="button" class="btn w-100" id="connect" onclick="connectDevice()">
+                        <span id="connectText">Connect Device</span>
+                        <span id="spinner" class="spinner-border spinner-border-sm ms-2" role="status"
+                            aria-hidden="true" style="display: none;"></span>
+                    </button>
+                    <button type="button" class="btn btn-danger w-100" id="disconnect" onclick="disconnectDevice()"
+                        style="display: none;">Disconnect</button>
+                </div>
+                <input class="form-control form-control-sm mt-2" type="text" id="rsdData" placeholder="RSD Data…"
+                    readonly style="display: none;">
+                {% endif %}
+            </div>
 
-        <div class="mb-3 glassmorphic-card" id="fuelRegionSection" style="display: none;">
-            <label for="fuelRegion">Select Region:</label>
-            <select class="custom-select glassmorphic-card" id="fuelRegion" onchange="handleFuelTypeChange()">
-                <option value="All">All</option>
-                <option value="ACT">ACT</option>
-                <option value="NSW">NSW</option>
-                <option value="QLD">QLD</option>
-                <option value="VIC">VIC</option>
-                <option value="WA">WA</option>
-            </select>
-        </div>
+            <div class="sidebar-section" id="fuelRegionSection" style="display: none;">
+                <div class="sidebar-section-title">Region Selection</div>
+                <select class="form-select form-select-sm" id="fuelRegion" onchange="handleFuelTypeChange()">
+                    <option value="All">All</option>
+                    <option value="ACT">ACT</option>
+                    <option value="NSW">NSW</option>
+                    <option value="QLD">QLD</option>
+                    <option value="VIC">VIC</option>
+                    <option value="WA">WA</option>
+                </select>
+            </div>
 
-        <div class="mb-3 glassmorphic-card" id="fuelTypeSection" style="display: none;">
-            <label for="fuelType">Select fuel type:</label>
-            <select class="custom-select glassmorphic-card" id="fuelType" onchange="handleFuelTypeChange()"></select>
-            <p></p>
-            <div class="form-group">
+            <div class="sidebar-section" id="fuelTypeSection" style="display: none;">
+                <div class="sidebar-section-title">Fuel Type</div>
+                <select class="form-select form-select-sm mb-2" id="fuelType"
+                    onchange="handleFuelTypeChange()"></select>
                 <div class="collapse" id="fuelDataCollapse">
-                    <textarea class="form-control glassmorphic-card" id="fuelText" rows="8" readonly
-                        disabled></textarea>
+                    <textarea class="form-control form-control-sm" id="fuelText" rows="6" readonly disabled></textarea>
                 </div>
             </div>
-        </div>
 
-        <div id="dataList" class="mb-3 glassmorphic-card"></div>
-        <div class="joystick-map-combined-container glassmorphic-card d-flex flex-row overflow-hidden">
-            <div id="joystick-wrapper" class="d-flex align-items-center justify-content-center border-end">
-                <div id="joystick-zone"></div>
-            </div>
-            <div id="map" class="flex-grow-1"></div>
-        </div>
-        <br>
-        <div class="mb-3 glassmorphic-card" id="loc-search">
-            <div class="row align-items-start"> <!-- Align items to the start of the row -->
-                <div class="col-md-auto d-flex align-items-center">
-                    <label class="mb-0" for="coordinates">Location:</label>
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Location Control</div>
+                <div class="mb-3">
+                    <label for="coordinates" class="form-label small">Coordinates / Search:</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control form-control-sm" id="coordinates">
+                        <button type="button" class="btn btn-sm" id="search" onclick="handleSearch()">Search</button>
+                    </div>
                 </div>
-                <div class="col d-flex align-items-start"> <!-- Align input to the start -->
-                    <input type="text" class="form-control glassmorphic-card" id="coordinates">
-                </div>
-                <div class="col-md-auto d-flex align-items-center justify-content-center">
-                    <button type="button" class="btn" id="search" onclick="handleSearch()">Search</button>
-                </div>
-            </div>
-        </div>
 
-
-        <div class="mb-3 glassmorphic-card">
-            <div class="row align-items-center">
-                <div class="col">
-                    <button type="button" class="btn w-100" data-toggle="popover" id="set-location" disabled
-                        onclick="setLocation()">Simulate Location</button>
+                <div id="joystick-wrapper" class="mb-3">
+                    <div id="joystick-zone"></div>
                 </div>
-                <div class="col">
-                    <button type="button" class="btn w-100" data-toggle="popover" id="stop-location" disabled
-                        onclick="stopLocation()">Stop Location</button>
+
+                <div class="row g-2">
+                    <div class="col-6">
+                        <button type="button" class="btn btn-sm w-100" id="set-location" disabled
+                            onclick="setLocation()">Simulate</button>
+                    </div>
+                    <div class="col-6">
+                        <button type="button" class="btn btn-sm w-100" id="stop-location" disabled
+                            onclick="stopLocation()">Stop</button>
+                    </div>
                 </div>
             </div>
-        </div>
+
+            <!-- <div id="dataList"></div> -->
+
+            {% if timeout_message %}
+            <div class="alert alert-warning p-2 small mt-auto" role="alert">{{ timeout_message }}</div>
+            {% endif %}
+            {% if error_message %}
+            <div class="alert alert-danger p-2 small mt-2" role="alert">{{ error_message }}</div>
+            {% endif %}
+        </aside>
+
+        <main class="map-container">
+            <div id="map"></div>
+        </main>
     </div>
 
-
-
-    <br>
-
-    <hr>
-
-    <!-- All existing modal codes remain unchanged -->
-    <!-- Keeping all modal divs as they were in original HTML -->
-
-
-
-
+    <!-- Modals -->
     <div class="modal fade" id="shutdownModal" tabindex="-1" role="dialog" aria-labelledby="shutdownModalLabel"
         aria-hidden="true">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="shutdownModalLabel">Server Shutdown</h5>
-                    <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
-                    Thank you for using the app!
-                </div>
+                <div class="modal-body">Thank you for using the app!</div>
             </div>
         </div>
     </div>
@@ -257,17 +221,12 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="aboutModalLabel">GeoPort</h5>
-                    <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
-                    App Version: {{ app_version_num }}
-                </div>
+                <div class="modal-body">App Version: {{ app_version_num }}</div>
             </div>
         </div>
     </div>
-
 
     <div class="modal fade" id="developerModeModal" tabindex="-1" role="dialog" aria-labelledby="devModalLabel"
         aria-hidden="true">
@@ -275,9 +234,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="developerModeModal">Developer Mode</h5>
-                    <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <p>The device is enabled with a passcode </p>
@@ -293,38 +250,34 @@
             </div>
         </div>
     </div>
+
     <div class="modal fade" id="pairRecordModal" tabindex="-1" role="dialog" aria-labelledby="pairRecordModalLabel"
         aria-hidden="true">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="pairRecordModalLabel">No Pair Record</h5>
-                    <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <p>Pair Record Not Found</p>
                     Please use a USB Cable to create a Pair Record
-
                 </div>
                 <div class="modal-footer justify-content-center">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
                         onclick="window.location.href = '/'">OK</button>
-
                 </div>
             </div>
         </div>
     </div>
+
     <div class="modal fade" id="developerModeRequiredModal" tabindex="-1" role="dialog"
         aria-labelledby="developerModeRequiredModalLabel" aria-hidden="true">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="developerModeRequiredModalLabel">Developer Mode Required</h5>
-                    <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <p>Developer mode is not enabled</p>
@@ -342,39 +295,34 @@
             </div>
         </div>
     </div>
+
     <div class="modal fade" id="modalTimeout" tabindex="-1" role="dialog" aria-labelledby="modalTimeout"
         aria-hidden="true">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="modalTimeout">Connect Timeout</h5>
-                    <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body text-center">
                     <p>Unable to create device tunnel within 60 seconds</p>
-
                     <p>Please try to connect again</p>
-
                 </div>
                 <div class="modal-footer d-flex justify-content-center">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
                         onclick="window.location.href = '/'">Close</button>
-
                 </div>
             </div>
         </div>
     </div>
+
     <div class="modal fade" id="developerError" tabindex="-1" role="dialog" aria-labelledby="developerErrorLabel"
         aria-hidden="true">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="developerErrorLabel">Developer Error</h5>
-                    <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body text-center">
                     <p id="developerErrorMessage"></p>
@@ -387,8 +335,7 @@
         </div>
     </div>
 
-
-
+    <!-- Toasts -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3">
         <div id="liveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
             <div class="toast-header">
@@ -396,20 +343,28 @@
                 <small>Just Now</small>
                 <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
             </div>
-            <div class="toast-body">
-                {{ data }}
-            </div>
+            <div class="toast-body">{{ data }}</div>
         </div>
     </div>
 
-    <!-- Toast Container -->
-    <div aria-live="polite" aria-atomic="true" style="position: relative; min-height: 200px;">
-        <div class="toast-container position-absolute top-0 end-0 p-3" style="z-index: 9999;"></div>
-    </div>
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('collapsed');
+            
+            // Adjust Leaflet map after sidebar movement
+            if (window.map) {
+                setTimeout(() => {
+                    window.map.invalidateSize();
+                }, 300);
+            }
+        }
 
-
-    </div>
-
+        // Auto-collapse sidebar on mobile initially
+        if (window.innerWidth <= 768) {
+            document.getElementById('sidebar').classList.add('collapsed');
+        }
+    </script>
 </body>
 
 </html>
