@@ -256,8 +256,11 @@ async function initializeMap(userLocale) {
 
     // Create the map instance after obtaining coordinates
     map = L.map('map', {
-        keyboard: false // Disable keyboard navigation
+        keyboard: false, // Disable keyboard navigation
+        zoomControl: false // Disable default zoom
     });
+    // Re-add zoom control to the top left
+    L.control.zoom({ position: 'topleft' }).addTo(map);
 
     // Create tile layers
     var stadiaTileLayer = L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png', {
@@ -616,52 +619,6 @@ async function initializeMap(userLocale) {
 
 
 
-    // Create the draw polyline button using EasyButton
-    var drawPolylineButton = L.easyButton({
-        states: [{
-            stateName: 'draw-polyline',
-            icon: '<i class="lni lni-travel"></i>', // Icon class for drawing mode
-            title: 'Draw Track', // Tooltip for the button
-            onClick: function (btn, map) {
-                // Toggle drawing mode
-                isDrawingMode = !isDrawingMode;
-
-                if (isDrawingMode) {
-                    // Disable manual mode if active
-                    if (isManualDrawingMode) {
-                        isManualDrawingMode = false;
-                        map.off('click', handleManualMapClick);
-                        manualDrawButton.button.innerHTML = '<i class="lni lni-pencil-alt"></i>';
-                        manualDrawButton.button.classList.remove('active');
-                    }
-
-                    map.on('click', handleMapClick); // Enable drawing mode
-                    btn.button.innerHTML = '<i class="lni lni-pencil"></i>'; // Change icon to pencil when drawing mode is enabled
-                    btn.button.classList.add('active'); // Add active class for styling
-                    map.getContainer().style.cursor = 'crosshair'; // Change cursor to crosshair
-                } else {
-                    map.off('click', handleMapClick); // Disable drawing mode
-                    btn.button.innerHTML = '<i class="lni lni-travel"></i>'; // Change icon back to travel when drawing mode is disabled
-                    btn.button.classList.remove('active'); // Remove active class
-                    map.getContainer().style.cursor = ''; // Reset cursor to default
-                }
-            }
-        }]
-    });
-
-    drawPolylineButton.button.style.fontSize = '24px'; // Adjust the font size as needed
-    drawPolylineButton.button.style.paddingLeft = '4px';
-
-    // Add the draw polyline button to the map
-    drawPolylineButton.addTo(map);
-
-    // Get the container of your existing Leaflet control
-    var fileLayerControlContainer = document.querySelector('.leaflet-control-filelayer');
-
-    // Add the EasyButton's container element to the existing control container
-    fileLayerControlContainer.appendChild(drawPolylineButton.button);
-
-    // Add the custom class to the EasyButton's container element
     // Create the manual drawing button using EasyButton
     var manualDrawButton = L.easyButton({
         states: [{
@@ -672,16 +629,8 @@ async function initializeMap(userLocale) {
                 isManualDrawingMode = !isManualDrawingMode;
 
                 if (isManualDrawingMode) {
-                    // Disable other modes
-                    if (isDrawingMode) {
-                        isDrawingMode = false;
-                        map.off('click', handleMapClick);
-                        drawPolylineButton.button.innerHTML = '<i class="lni lni-travel"></i>';
-                        drawPolylineButton.button.classList.remove('active');
-                    }
-
                     map.on('click', handleManualMapClick);
-                    btn.button.innerHTML = '<i class="lni lni-save"></i>'; // Change to save/check icon
+                    btn.button.innerHTML = '<i class="lni lni-checkmark"></i>'; // Change to checkmark icon
                     btn.button.classList.add('active');
                     map.getContainer().style.cursor = 'crosshair';
                 } else {
@@ -700,166 +649,121 @@ async function initializeMap(userLocale) {
 
     // Get the container of your existing Leaflet control
     var fileLayerControlContainer = document.querySelector('.leaflet-control-filelayer');
-
-    // Add the EasyButton's container element to the existing control container
-    fileLayerControlContainer.appendChild(manualDrawButton.button);
-
-    // Add the custom class to the EasyButton's container element
-    manualDrawButton.button.classList.add('leaflet-control-filelayer-custom');
+    if (fileLayerControlContainer) {
+        // Add the EasyButton's container element to the existing control container
+        fileLayerControlContainer.appendChild(manualDrawButton.button);
+        // Add the custom class to the EasyButton's container element
+        manualDrawButton.button.classList.add('leaflet-control-filelayer-custom');
+    }
 
     //===========
 
-    // Define the validateInput function
-    window.validateInput = function (input) {
-        // Get the entered value
-        var value = input.value;
+    //=========================== Speed Select Control ====================
+    L.Control.SpeedSelect = L.Control.extend({
+        options: { position: 'topleft' },
+        onAdd: function (map) {
+            // Re-use standard bar style
+            var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-speed');
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.alignItems = 'center';
+            container.style.padding = '0';
+            
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.disableScrollPropagation(container);
 
-        // Regular expression to match the desired format
-        var regex = /^[1-9]\d{0,2}(\.\d{0,2})?$/;
+            var select = L.DomUtil.create('select', '', container);
+            select.style.width = '48px';
+            select.style.height = '48px'; // Keep it a square just like a menu button
+            select.style.background = 'transparent';
+            select.style.border = 'none';
+            select.style.outline = 'none';
+            select.style.fontSize = '12px';
+            select.style.fontWeight = '700';
+            select.style.textShadow = 'none';
+            select.style.cursor = 'pointer';
+            select.style.appearance = 'none'; // Hide native dropdown arrow to look like a button
+            select.style.textAlign = 'center';
+            select.title = 'Speed';
 
-        // Check if the entered value matches the pattern
-        if (!regex.test(value)) {
-            // If the input doesn't match the pattern, clear the input field
+            var options = [
+                { value: 'walk', text: '6 km/h' },
+                { value: 'run', text: '12 km/h' },
+                { value: 'ride', text: '19 km/h' },
+                { value: 'drive', text: '50 km/h' },
+                { value: 'fly', text: '450 km/h' },
+                { value: 'custom', text: '...' }
+            ];
 
-            input.value = '';
-        }
-    };
+            options.forEach(function(opt) {
+                var optionElements = L.DomUtil.create('option', '', select);
+                optionElements.value = opt.value;
+                optionElements.text = opt.text;
+                optionElements.style.color = '#000'; // Make sure options are visible in the dropdown list
+            });
 
-    // Define the saveCustomSpeed function
-    window.saveCustomSpeed = function () {
-        // Get the entered value
-        var customSpeedInput = document.getElementById('customSpeedInput');
-        var velocitySelect = customSpeedInput.value.trim(); // Trim leading and trailing whitespace
+            // Set initial value
+            select.value = typeof velocitySelect !== "undefined" ? velocitySelect : 'walk';
 
-        // Check if the entered value is 0 or null or empty
-        if (velocitySelect === '0' || velocitySelect === null || velocitySelect === '') {
-            // If the value is 0 or null or empty, show an alert and return without saving
-            alert('Speed value cannot be 0 or empty.\nValue not saved!');
-            return;
-        }
+            var customInputContainer = L.DomUtil.create('div', '', container);
+            customInputContainer.style.display = 'none';
+            customInputContainer.style.width = '100%';
+            
+            var customInput = L.DomUtil.create('input', '', customInputContainer);
+            customInput.type = 'number';
+            customInput.placeholder = 'km/h';
+            customInput.style.width = '48px';
+            customInput.style.height = '30px'; // Keep height as before
+            customInput.style.border = 'none';
+            customInput.style.borderTop = '1px solid rgba(0,0,0,0.1)';
+            customInput.style.background = 'transparent';
+            customInput.style.textAlign = 'center';
+            customInput.style.fontSize = '12px'; // Reduced font size for custom input text
+            customInput.style.boxSizing = 'border-box';
+            customInput.style.padding = '0';
+            customInput.style.outline = 'none';
 
-        // Log the velocitySelect value to console
-        console.log('VelocitySelect set to:', velocitySelect);
-
-        // Close the modal
-        var modal = new bootstrap.Modal(document.getElementById('customSpeedModal'));
-        modal.hide();
-    };
-
-    // Initialize menu with an empty object
-    var menu = L.leafletMenu(map, {
-        items: {
-            Walk: {
-                onClick: function () {
-                    velocitySelect = 'walk'; // Set velocitySelect to 'walk'
+            L.DomEvent.on(select, 'change', function() {
+                if (select.value === 'custom') {
+                    customInputContainer.style.display = 'block';
+                    if (!['walk','run','ride','drive','fly'].includes(velocitySelect)) {
+                        customInput.value = velocitySelect;
+                    } else {
+                        customInput.value = '';
+                    }
+                } else {
+                    customInputContainer.style.display = 'none';
+                    velocitySelect = select.value;
                     console.log("VelocitySelect set to:", velocitySelect);
-                },
-            },
-            Run: {
-                onClick: function () {
-                    velocitySelect = 'run'; // Set velocitySelect to 'run'
-                    console.log("VelocitySelect set to:", velocitySelect);
-                },
-            },
-            Ride: {
-                onClick: function () {
-                    velocitySelect = 'ride'; // Set velocitySelect to 'ride'
-                    console.log("VelocitySelect set to:", velocitySelect);
-                },
-            },
-            Drive: {
-                onClick: function () {
-                    velocitySelect = 'drive'; // Set velocitySelect to 'drive'
-                    console.log("VelocitySelect set to:", velocitySelect);
-                },
-            },
-            Custom: {
-                label: 'Custom Speed',
-                onClick: function () {
-                    // Create the modal HTML
-                    var modalHtml = `
-                <div class="modal fade" id="customSpeedModal" tabindex="-1" aria-labelledby="customSpeedModalLabel" aria-hidden="true">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="customSpeedModalLabel">Custom Speed</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <input type="text" class="form-control" id="customSpeedInput" placeholder="Enter custom speed (Km/H) - Limit: 3 digits 2 decimals" oninput="validateInput(this)">
-
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                        <button type="button" class="btn btn-primary" onclick="validateInput(document.getElementById('customSpeedInput')); saveCustomSpeed();" data-bs-dismiss="modal">Save changes</button>
-                    </div>
-                    </div>
-                </div>
-                </div>`;
-
-                    // Append the modal HTML to the body
-                    document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-                    // Show the modal
-                    var customSpeedModal = new bootstrap.Modal(document.getElementById('customSpeedModal'));
-                    customSpeedModal.show();
                 }
-            }
+            });
+
+            // Prevent typing from propagating to map hooks
+            L.DomEvent.on(customInput, 'keydown', function(e) {
+                L.DomEvent.stopPropagation(e);
+            });
+
+            L.DomEvent.on(customInput, 'input', function() {
+                if (customInput.value) {
+                    velocitySelect = customInput.value;
+                    console.log("VelocitySelect set to (custom):", velocitySelect);
+                }
+            });
+
+            return container;
         }
-
     });
 
-    function submitCustomSpeed() {
-        var customSpeed = document.getElementById("customSpeedInput").value;
-        console.log("VelocitySelect set to:", customSpeed);
-        velocitySelect = customSpeed;
-        // Do something with the custom speed value
+    // Add Speed Control to map
+    var speedControl = new L.Control.SpeedSelect({ position: 'topleft' });
+    speedControl.addTo(map);
 
-        // Close the modal
-        var modal = new bootstrap.Modal(document.getElementById('customSpeedModal'));
-        modal.hide();
-    }
-
-
-
-
-    //=============
-
-    // Create the dashboard button
-    var dashboardButton = L.easyButton({
-        states: [{
-            stateName: 'show-menu',
-            icon: 'lni lni-dashboard',
-            title: 'Select Speed',
-            onClick: function (btn, map) {
-                menu.options.button = btn;
-                menu.show();
-                btn.state('hide-menu');
-            }
-        }, {
-            stateName: 'hide-menu',
-            icon: 'fa fa-tasks',
-            title: 'Hide Menu',
-            onClick: function (btn, map) {
-                menu.hide(); // Hide the menu when the button is clicked
-                btn.state('show-menu'); // Change button state to 'show-menu'
-            }
-        }],
-        id: 'styles-menu',
-    });
-    dashboardButton.button.style.fontSize = '24px'; // Adjust the font size as needed
-    dashboardButton.button.style.paddingLeft = '4px';
-    // Add the EasyButton to the map
-    dashboardButton.addTo(map);
-
-    // Get the container of your existing Leaflet control
+    // Get the container of your existing Leaflet control and disable propagation
     var fileLayerControlContainer = document.querySelector('.leaflet-control-filelayer');
-
-    // Add the EasyButton's container element to the existing control container
-    fileLayerControlContainer.appendChild(dashboardButton.button);
-
-    // Add the custom class to the EasyButton's container element
-    dashboardButton.button.classList.add('leaflet-control-filelayer-custom');
+    if (fileLayerControlContainer) {
+        L.DomEvent.disableClickPropagation(fileLayerControlContainer);
+        L.DomEvent.disableScrollPropagation(fileLayerControlContainer);
+    }
 
 
 
@@ -881,6 +785,14 @@ async function initializeMap(userLocale) {
                 currentSegmentPoints = []; // Reset sub-points
                 gpxMarker = null; // Clear marker reference
                 wasPlaybackPaused = false;
+                if (typeof playbackButton !== 'undefined') {
+                    playbackButton.state('play'); // Reset the playback button state
+                }
+                
+                // Stop background timer just in case
+                if (typeof timerWorker !== 'undefined') {
+                    timerWorker.postMessage({ action: 'stop' });
+                }
 
                 console.log("Trash: reset all playback states");
 
@@ -957,6 +869,26 @@ async function initializeMap(userLocale) {
     let currentSegmentPoints = [];
     const INTERPOLATION_INTERVAL = 100; // 100ms for smooth updates
 
+    // Create a Web Worker to handle the timer without being throttled when minimized
+    const timerWorkerCode = `
+        let timer = null;
+        self.onmessage = function(e) {
+            if (e.data.action === 'start') {
+                timer = setTimeout(() => self.postMessage('tick'), e.data.interval);
+            } else if (e.data.action === 'stop') {
+                clearTimeout(timer);
+            }
+        };
+    `;
+    const timerBlob = new Blob([timerWorkerCode], { type: 'application/javascript' });
+    const timerWorker = new Worker(URL.createObjectURL(timerBlob));
+    
+    timerWorker.onmessage = function(e) {
+        if (e.data === 'tick') {
+            processNextPoint();
+        }
+    };
+
     function processNextPoint() {
         if (isPlaybackStopped) return;
 
@@ -985,7 +917,7 @@ async function initializeMap(userLocale) {
             const start = lineLatLngs[playbackIndex];
             const end = lineLatLngs[playbackIndex + 1];
             const distance = calculateDistance(start[0], start[1], end[0], end[1]);
-            const speedKmh = (velocitySelect === 'walk' ? 6 : (velocitySelect === 'run' ? 12 : (velocitySelect === 'ride' ? 20 : (velocitySelect === 'drive' ? 50 : parseFloat(velocitySelect) || 18))));
+            const speedKmh = (velocitySelect === 'walk' ? 6 : (velocitySelect === 'run' ? 12 : (velocitySelect === 'ride' ? 19 : (velocitySelect === 'drive' ? 50 : (velocitySelect === 'fly' ? 450 : parseFloat(velocitySelect) || 18)))));
             const totalTimeSec = (distance / speedKmh) * 3600;
             const numSteps = Math.max(1, Math.ceil(totalTimeSec * 1000 / INTERPOLATION_INTERVAL));
 
@@ -1016,8 +948,8 @@ async function initializeMap(userLocale) {
         syncLocation(lat, lng);
         map.panTo([lat, lng]); // Auto-pan to follow
 
-        // Schedule next sub-step
-        setTimeout(processNextPoint, INTERPOLATION_INTERVAL);
+        // Schedule next sub-step using Web Worker to prevent background throttling
+        timerWorker.postMessage({ action: 'start', interval: INTERPOLATION_INTERVAL });
     }
 
     function calculateRoute(startPoint, endPoint) {
@@ -1487,8 +1419,9 @@ function calculateTime(distance, velocity) {
     const speed = {
         "walk": 6,  // km/h
         "run": 12,  // km/h
-        "ride": 20,  // km/h
-        "drive": 50  // km/h
+        "ride": 19,  // km/h
+        "drive": 50, // km/h
+        "fly": 450   // km/h
     };
     const speedKmh = speed[velocity] || parseFloat(velocity) || 6;
 
@@ -2056,6 +1989,10 @@ async function handleFuelTypeChange() {
 }
 
 async function updateFuelText(selectedFuelType, selectedFuelRegion) {
+    if (!selectedFuelType || selectedFuelType === "undefined") {
+        console.warn("No fuel type selected, skipping data fetch.");
+        return;
+    }
     var fuelTypeDropdown = document.getElementById('fuelType');
     var fuelText = document.getElementById('fuelText');
     var fuelDataCollapse = document.getElementById('fuelDataCollapse');
