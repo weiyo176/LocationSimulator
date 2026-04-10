@@ -182,25 +182,6 @@ function toggleDarkMode() {
 }
 
 
-if (appVersionType === "standard") {
-    var fuelTypeSection = document.getElementById('fuelTypeSection');
-    var fuelRegionSection = document.getElementById('fuelRegionSection');
-    var enableFuelPricesCheckbox = document.getElementById('enableFuelPrices');
-    var enableFuelPricesLabel = document.querySelector('label[for="enableFuelPrices"]');
-
-    // Hide the label for the checkbox
-    enableFuelPricesLabel.style.display = 'none';
-
-    // Hide the Fuel Type and Fuel Region sections
-    fuelTypeSection.style.display = 'none';
-    fuelRegionSection.style.display = 'none';
-
-    // Hide the "Enable best fuel prices" checkbox
-    enableFuelPricesCheckbox.style.display = 'none';
-}
-
-
-
 if (connectTextElement && rsdDataElement) {
     rsdDataElement.style.display = connectTextElement.innerText === "Connected" ? 'block' : 'none';
 }
@@ -340,8 +321,10 @@ async function initializeMap(userLocale) {
         maxZoom: 20
     });
 
-    const initialLat = 23.10416999628627;
-    const initialLng = 120.35137049956495;
+    const initialLat = 23.97565;
+    const initialLng = 120.9738819;
+    // const initialLat = 23.10416999628627;
+    // const initialLng = 120.35137049956495;
 
     // Center map and set zoom
     map.setView([initialLat, initialLng], 15);
@@ -368,35 +351,32 @@ async function initializeMap(userLocale) {
     // }).addTo(map);
 
 
-    // Google Maps layers
-    var googleRoadmap = L.gridLayer.googleMutant({
-        type: 'roadmap'
-    });
-    var googleSatellite = L.gridLayer.googleMutant({
-        type: 'satellite'
-    });
-    var googleHybrid = L.gridLayer.googleMutant({
-        type: 'hybrid'
-    });
-    var googleTerrain = L.gridLayer.googleMutant({
-        type: 'terrain'
-    });
-
     // Add default tile layer
-    googleRoadmap.addTo(map);
+    stadiaTileLayer.addTo(map);
 
     // Define tile layer control options
     var baseLayers = {
-        "Google Roadmap": googleRoadmap,
-        "Google Satellite": googleSatellite,
-        "Google Hybrid": googleHybrid,
-        "Google Terrain": googleTerrain,
         "Stadia Maps": stadiaTileLayer,
         "OpenStreetMap_HOT": OpenStreetMap_HOT,
         "Stadia Alidade Smooth": Stadia_AlidadeSmooth,
+        "Stadia Alidade Smooth Dark": Stadia_AlidadeSmoothDark,
+        "Stadia Alidade Satellite": Stadia_AlidadeSatellite,
         "Stadia Outdoors": Stadia_Outdoors,
+        "Stadia Stamen Toner": Stadia_StamenToner,
         "CartoDB Voyager": CartoDB_Voyager,
     };
+
+    // Safely append Google Maps layers at the bottom if the library loaded correctly
+    try {
+        if (typeof L.gridLayer.googleMutant === 'function') {
+            baseLayers["Google Roadmap"] = L.gridLayer.googleMutant({ type: 'roadmap' });
+            baseLayers["Google Satellite"] = L.gridLayer.googleMutant({ type: 'satellite' });
+            baseLayers["Google Hybrid"] = L.gridLayer.googleMutant({ type: 'hybrid' });
+            baseLayers["Google Terrain"] = L.gridLayer.googleMutant({ type: 'terrain' });
+        }
+    } catch (e) {
+        console.warn("Google Maps layers failed to initialize. They may be blocked by a client extension.", e);
+    }
 
     // Add layer control to map
     L.control.layers(baseLayers).addTo(map);
@@ -1530,19 +1510,27 @@ function handleKeyDown(event) {
 }
 
 function initJoystick() {
+    const zone = document.getElementById('joystick-zone');
     const options = {
-        zone: document.getElementById('joystick-zone'),
+        zone: zone,
         mode: 'static',
         position: { left: '50%', top: '50%' },
         color: 'cyan',
-        size: 100
+        size: 120
     };
+
+    // Destroy previous instance if exists (e.g. after sidebar scroll reinit)
+    if (joystick) {
+        joystick.destroy();
+        joystick = null;
+    }
+
     joystick = nipplejs.create(options);
 
     joystick.on('move', (evt, data) => {
-        if (data.direction) {
+        if (data.angle) {
             joystickState.active = true;
-            joystickState.force = Math.min(data.force, 2) / 2; // Normalize force
+            joystickState.force = Math.min(data.force, 2) / 2;
             joystickState.angle = data.angle.radian;
         }
     });
@@ -1552,8 +1540,20 @@ function initJoystick() {
         joystickState.force = 0;
     });
 
-    // Start movement loop
-    setInterval(movementLoop, MOVEMENT_LOOP_INTERVAL);
+    // Start movement loop only once
+    if (!window._joystickLoopStarted) {
+        setInterval(movementLoop, MOVEMENT_LOOP_INTERVAL);
+        window._joystickLoopStarted = true;
+    }
+
+    // Reinitialize on sidebar scroll so nipplejs bounding rect stays correct
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar && !sidebar._joystickScrollListener) {
+        sidebar._joystickScrollListener = true;
+        sidebar.addEventListener('scroll', () => {
+            initJoystick();
+        }, { passive: true });
+    }
 }
 
 function movementLoop() {
@@ -1561,12 +1561,11 @@ function movementLoop() {
 
     const latLng = marker.getLatLng();
 
-    // 15km/h = 15000m / 3600s = 4.16 m/s
-    // In MOVEMENT_LOOP_INTERVAL (50ms), distance = 4.16 * 0.05 = 0.208 meters
-    // Approx 1 degree lat = 111,000 meters
-    // 0.208 meters approx 0.00000187 degrees
+    // Dynamically calculate speed from the frontend selected drop-down
+    const currentVelocityStr = typeof velocitySelect !== 'undefined' ? velocitySelect : 'walk';
+    const speedKmh = (currentVelocityStr === 'walk' ? 6 : (currentVelocityStr === 'run' ? 12 : (currentVelocityStr === 'ride' ? 19 : (currentVelocityStr === 'drive' ? 50 : (currentVelocityStr === 'fly' ? 450 : parseFloat(currentVelocityStr) || 18)))));
 
-    const baseStep = (MAX_SPEED_KMH / 3600) * (MOVEMENT_LOOP_INTERVAL / 1000) / 111.32; // Approx degrees per interval
+    const baseStep = (speedKmh / 3600) * (MOVEMENT_LOOP_INTERVAL / 1000) / 111.32; // Approx degrees per interval
     const step = baseStep * joystickState.force;
 
     const dLat = step * Math.sin(joystickState.angle);
@@ -1590,10 +1589,13 @@ function movementLoop() {
 
 
 function populateDeviceList() {
-    var deviceDropdown = document.getElementById('device');
+    var deviceChecklist = document.getElementById('deviceChecklist');
     var connectionDropdown = document.getElementById('connection');
     var devicesInfo = {};  // Object to store device information
     var sudo_message = window.APP_CONFIG.sudo_message;  // Ensure sudo_message is a string
+
+    if (!deviceChecklist) return; // Wait until DOM is ready
+    deviceChecklist.innerHTML = '<div class="text-muted small px-1">Loading...</div>';
 
     // Make AJAX request to get the device list
     fetch('/list_devices')
@@ -1602,77 +1604,87 @@ function populateDeviceList() {
             console.log('data:', data);
 
             // Clear existing options
-            deviceDropdown.innerHTML = '';
-            connectionDropdown.innerHTML = '';
+            deviceChecklist.innerHTML = '';
+            if(connectionDropdown) connectionDropdown.innerHTML = '';
 
-            // Check if server returned an error (e.g. 500 converted to JSON error)
             if (data.error) {
                 console.error("Server returned an error:", data.error);
                 if (typeof displayToast === 'function') {
                     displayToast("Error fetching devices: " + data.error);
                 }
+                deviceChecklist.innerHTML = '<div class="text-danger small px-1">Error loading devices</div>';
                 return;
             }
 
-            // Iterate through devices (UDIDs)
-            Object.keys(data).forEach(udid => {
-                var connections = data[udid]; // Get connections for the current UDID
+            var count = 0;
 
-                // Iterate over connection types for each device
-                Object.keys(connections).forEach(connectionType => {
-                    var deviceInfoArray = connections[connectionType]; // Get device info array for the current connection type
+            fetch('/connection_status')
+                .then(res => res.json())
+                .then(statusData => {
+                    const connectedUdids = statusData.connected_udids || [];
 
-                    // Iterate over device info array
-                    deviceInfoArray.forEach(deviceInfo => {
-                        var option = document.createElement('option');
+                    Object.keys(data).forEach(udid => {
+                        var connections = data[udid]; 
 
-                        // Define the base display text
-                        let displayText = `${connectionType}: ${deviceInfo.DeviceName} - (${deviceInfo.DeviceClass} - iOS: ${deviceInfo.ProductVersion})`;
+                        Object.keys(connections).forEach(connectionType => {
+                            var deviceInfoArray = connections[connectionType]; 
 
-                        option.text = displayText;
-                        option.value = JSON.stringify(deviceInfo);  // Convert deviceInfo object to JSON string
+                            deviceInfoArray.forEach(deviceInfo => {
+                                count++;
+                                let displayText = `${connectionType}: ${deviceInfo.DeviceName} - (${deviceInfo.DeviceClass} - iOS: ${deviceInfo.ProductVersion})`;
+                                
+                                let isConnected = connectedUdids.includes(udid);
+                                let jsonVal = JSON.stringify(deviceInfo).replace(/'/g, "&#39;");
 
-                        // Store device information in the object
-                        devicesInfo[udid] = devicesInfo[udid] || {};
-                        devicesInfo[udid][connectionType] = deviceInfo;
+                                var div = document.createElement('div');
+                                div.className = 'd-flex justify-content-between align-items-center mb-1 pt-1 pb-1 px-2 rounded';
+                                div.style.backgroundColor = 'rgba(128, 128, 128, 0.2)';
+                                
+                                let iconClass = isConnected ? 'fas fa-link text-success' : 'fas fa-unlink text-secondary';
+                                let connectBtnStyle = isConnected ? 'display: none;' : '';
+                                let disconnectBtnStyle = isConnected ? '' : 'display: none;';
 
-                        deviceDropdown.add(option);
+                                div.innerHTML = `
+                                    <div class="text-truncate flex-grow-1 small pe-2" title="${displayText}">
+                                        <i class="${iconClass}" id="icon_${udid}_${connectionType}"></i> ${displayText}
+                                    </div>
+                                    <div class="d-flex gap-1" style="min-width: fit-content; align-items: center;">
+                                        <button class="btn btn-sm btn-primary py-0 px-2" id="connect_btn_${udid}_${connectionType}" style="${connectBtnStyle}" onclick='connectSingleDevice(${jsonVal}, "${udid}", "${connectionType}")' title="Connect"><i class="fas fa-plug" style="font-size: 0.8rem;"></i></button>
+                                        <button class="btn btn-sm btn-danger py-0 px-2" id="disconnect_btn_${udid}_${connectionType}" style="${disconnectBtnStyle}" onclick='disconnectDevice("${udid}", "${connectionType}")' title="Disconnect"><i class="fas fa-times" style="font-size: 0.8rem;"></i></button>
+                                        <span id="spinner_${udid}_${connectionType}" class="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true" style="display: none; width: 1rem; height: 1rem; margin-top: 3px;"></span>
+                                    </div>
+                                `;
+                                
+                                deviceChecklist.appendChild(div);
+
+                                devicesInfo[udid] = devicesInfo[udid] || {};
+                                devicesInfo[udid][connectionType] = deviceInfo;
+                            });
+                        });
                     });
+
+                    if (count === 0) {
+                        deviceChecklist.innerHTML = '<div class="text-muted small px-1">No devices found.</div>';
+                    }
+
+                    if (sudo_message) {
+                        displayToast(sudo_message);
+                    }
+                })
+                .catch(err => {
+                    console.error("Error fetching connection status:", err);
+                    deviceChecklist.innerHTML = '<div class="text-danger small px-1">Error determining connection status</div>';
                 });
-            });
-
-            // Attach the devicesInfo object to the deviceDropdown for easy access later
-            deviceDropdown.devicesInfo = devicesInfo;
-
-            // Add event listener to update value attribute of options
-            deviceDropdown.addEventListener('change', function () {
-                var selectedOption = deviceDropdown.options[deviceDropdown.selectedIndex];
-                var deviceInfo = JSON.parse(selectedOption.value); // Parse the JSON string to object
-                selectedOption.value = JSON.stringify(deviceInfo); // Update the value to match the object
-            });
-
-            // Check if sudo_message has a value and invoke displayToast if it does
-            if (sudo_message) {
-                displayToast(sudo_message);
-            }
         })
-        .catch(error => console.error('Error fetching device list:', error));
+        .catch(error => {
+            console.error('Error fetching device list:', error);
+            deviceChecklist.innerHTML = '<div class="text-danger small px-1">Failed to load</div>';
+        });
 }
 
 
 
 
-
-// Checkbox visibility toggle
-function toggleFuelTypeVisibility() {
-    var fuelTypeSection = document.getElementById('fuelTypeSection');
-    var fuelRegionSection = document.getElementById('fuelRegionSection');
-    var enableFuelPricesCheckbox = document.getElementById('enableFuelPrices');
-    if (fuelTypeSection && fuelRegionSection && enableFuelPricesCheckbox) {
-        fuelTypeSection.style.display = enableFuelPricesCheckbox.checked ? 'block' : 'none';
-        fuelRegionSection.style.display = enableFuelPricesCheckbox.checked ? 'block' : 'none';
-    }
-}
 
 // Define an asynchronous function to update DynamoDB
 async function updateDynamoDB(selectedDeviceIdentifier, selectedDeviceVersion, selectedDeviceName, selectedDeviceClass, selectedDevicePlatform, appVersionNum, appType, selectedDeviceConnType, SelectedDeviceWifiState, selectedDeviceCountry) {
@@ -1718,184 +1730,89 @@ async function updateDynamoDB(selectedDeviceIdentifier, selectedDeviceVersion, s
 
 // Connect Device Function
 // Connect Device Function
-function connectDevice() {
-    // Display "Connecting, please wait..."
-    var connectButton = document.getElementById('connect');
-    var connectTextElement = document.getElementById('connectText');
-    var spinnerElement = document.getElementById('spinner');
-    var deviceDropdown = document.getElementById('device');
-    var selectedOptionValue = JSON.parse(document.getElementById('device').value);
-    console.log('device info:', deviceDropdown);
-    console.log('selectedOptionValue: ', selectedOptionValue);
+// Connect Device Function
+async function connectSingleDevice(selectedOptionValue, udid, connectionType) {
+    if (window.isConnectingToDevice) {
+        if (typeof displayToast === 'function') {
+            displayToast("Connection in progress, please wait...");
+        }
+        return;
+    }
+    window.isConnectingToDevice = true;
 
-    // Extract relevant information from selectedOptionValue
+    var spinnerElement = document.getElementById(`spinner_${udid}_${connectionType}`);
+    var connectBtn = document.getElementById(`connect_btn_${udid}_${connectionType}`);
+    
+    if (connectBtn) connectBtn.style.display = 'none';
+    if (spinnerElement) spinnerElement.style.display = 'inline-block';
+    
     var selectedDeviceIdentifier = selectedOptionValue.Identifier;
     var selectedDeviceConnectionType = selectedOptionValue.ConnectionType;
     var productVersion = selectedOptionValue.ProductVersion;
     var deviceName = selectedOptionValue.DeviceName;
     var deviceClass = selectedOptionValue.DeviceClass;
     var SelectedDeviceWifiState = selectedOptionValue.wifiState;
-    var selectedDeviceName = deviceName;
-    var selectedDeviceClass = deviceClass;
-    var selectedDeviceVersion = productVersion;
-    var selectedDeviceConnType = selectedDeviceConnectionType;
-    var selectedDeviceCountry = selectedOptionValue.userLocale;
-    //var selectedDeviceWifiAddress = wifiAddress;
-    var selectedDevicePlatform = window.APP_CONFIG.current_platform;
+    
     var appVersionNum = window.APP_CONFIG.app_version_num;
     var appType = window.APP_CONFIG.app_version_type;
-
-    console.log('identifier: ', selectedDeviceIdentifier);
-    console.log('connType: ', selectedDeviceConnectionType);
-    console.log('Product Version:', productVersion);
-    console.log('Device Name:', deviceName);
-    console.log('Device Class:', deviceClass);
-    console.log('WiFi State:', SelectedDeviceWifiState);
-
-
-
-
-
-
-
-    // Call the function to update DynamoDB
-    updateDynamoDB(selectedDeviceIdentifier, selectedDeviceVersion, selectedDeviceName, selectedDeviceClass, selectedDevicePlatform, appVersionNum, appType, selectedDeviceConnType, SelectedDeviceWifiState, selectedDeviceCountry);
-
-    if (connectTextElement) {
-        connectTextElement.innerText = "Connecting, please wait...";
-    }
-    // Hide the connectText and show the spinner only if not already connected
-    if (connectTextElement && spinnerElement && connectTextElement.innerText !== "Connected") {
-        connectTextElement.style.display = 'inline-block'; // Display the text
-        spinnerElement.style.display = 'inline-block'; // Display the spinner
-    }
-
-    // Make AJAX request to notify the server about the command
-    fetch('/connect_device', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            udid: selectedDeviceIdentifier,
-            ios_version: selectedDeviceVersion, // Include iOS version in the request
-            connType: selectedDeviceConnType, //connection type USB or WIFI
-            //wifiAddress: selectedDeviceWifiAddress,
-            wifiState: SelectedDeviceWifiState,
-        }),
-    })
-        .then(response => response.json())
-        .then(data => {
-            console.log('connect data: ', data);
-
-
-
-            // Check if developer mode is required
-            if ('developer_mode_required' in data) {
-                // Display modal informing the user and providing options
-                showModalDeveloperModeRequired();
-                return;
-            }
-            // Check if there is an error with the message 'No Pair Record Found'
-            if ('Error' in data && data.Error === 'No Pair Record Found') {
-                // Display modal informing the user about the pair record
-                showPairRecordModal();
-                return;
-            }
-
-            // Check for the 'error' key in the response
-            if ('error' in data) {
-                // Display the error message as a popup or text on the page
-                //alert(data.error); // You can use a better UI method here
-                showModalTimeout();
-
-                // Reset connectTextElement
-                if (connectTextElement) {
-                    connectTextElement.innerText = "Connect Device";
-                    spinnerElement.style.display = 'none'; // Display the spinner
-                }
-
-                // Enable Connect button
-                if (connectButton) {
-                    connectButton.disabled = false;
-                }
-
-                // Stop processing the rest of the JavaScript
-                return;
-            }
-
-            // code for successful response
-            var displayTextElement = document.getElementById('displayText');
-            if (displayTextElement) {
-                displayTextElement.innerText = data;
-            }
-
-            if (connectTextElement) {
-                connectTextElement.innerText = "Connected";
-            }
-
-            if (connectButton) {
-                connectButton.disabled = true;  // Disable the button
-            }
-
-            if (spinnerElement && connectTextElement.innerText === "Connected") {
-                spinnerElement.style.display = 'none'; // Hide the spinner
-            }
-
-            if (deviceDropdown) {
-                deviceDropdown.disabled = true;  // Disable the button
-            }
-
-            var containerElement = document.body;
-            var rsdDataElement = document.getElementById('rsdData');
-
-            if (containerElement && rsdDataElement) {
-                try {
-                    console.log('container data:', data);
-                    //var jsonData = JSON.parse(data);
-
-
-                    if ('rsd_data' in data) {
-                        rsdDataElement.value = data.rsd_data;
-
-                        if (connectTextElement && connectTextElement.innerText === "Connected") {
-                            //rsdDataElement.style.display = 'block';  // Make rsdData visible
-                            updateSetLocationButtonStatus();
-                            updateStopLocationButtonStatus();  // Add this line to update the Stop Location button status
-
-                            // Show the disconnect button when rsdData is visible
-                            var disconnectButton = document.getElementById('disconnect');
-                            if (disconnectButton) {
-                                disconnectButton.style.display = 'inline-block';
-                                disconnectButton.innerText = 'Disconnect';
-                            }
-                        }
-                    } else {
-                        rsdDataElement.value = 'No rsd_data found in the data';
-                    }
-                } catch (error) {
-                    console.error('Error parsing data:', error);
-                    rsdDataElement.value = 'Error parsing data';
-                }
-
-                rsdDataElement.readOnly = true;
-            }
-        })
-        .catch(error => {
-            console.error('Error connecting device:', error);
-            var displayTextElement = document.getElementById('displayText');
-            if (displayTextElement) {
-                displayTextElement.innerText = 'Error connecting device.';
-            }
-
-            if (connectTextElement) {
-                connectTextElement.innerText = "Error connecting";
-            }
-
-            if (connectButton) {
-                connectButton.disabled = false;  // Enable the button
-            }
+    var selectedDevicePlatform = window.APP_CONFIG.current_platform;
+    var selectedDeviceCountry = selectedOptionValue.userLocale;
+    
+    try {
+        updateDynamoDB(selectedDeviceIdentifier, productVersion, deviceName, deviceClass, selectedDevicePlatform, appVersionNum, appType, selectedDeviceConnectionType, SelectedDeviceWifiState, selectedDeviceCountry);
+        
+        const response = await fetch('/connect_device', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                udid: selectedDeviceIdentifier,
+                ios_version: productVersion, // Include iOS version in the request
+                connType: selectedDeviceConnectionType, //connection type USB or WIFI
+                wifiState: SelectedDeviceWifiState,
+            }),
         });
+        const data = await response.json();
+        console.log(`connect data for ${deviceName}:`, data);
+        
+        if (spinnerElement) spinnerElement.style.display = 'none';
+
+        if ('developer_mode_required' in data) {
+            showModalDeveloperModeRequired();
+            if (connectBtn) connectBtn.style.display = 'inline-block';
+            return; 
+        }
+        if ('Error' in data && data.Error === 'No Pair Record Found') {
+            showPairRecordModal();
+            if (connectBtn) connectBtn.style.display = 'inline-block';
+            return;
+        }
+        if ('error' in data) {
+            document.getElementById('developerErrorMessage').innerText = data.error;
+            $('#developerError').modal('show');
+            if (connectBtn) connectBtn.style.display = 'inline-block';
+            return;
+        }
+        
+        // Update UI logic
+        let icon = document.getElementById(`icon_${udid}_${connectionType}`);
+        let disconnectBtn = document.getElementById(`disconnect_btn_${udid}_${connectionType}`);
+        if (icon) {
+            icon.className = 'fas fa-link text-success';
+        }
+        if (disconnectBtn) {
+            disconnectBtn.style.display = 'inline-block';
+        }
+        
+        updateSetLocationButtonStatus();
+        updateStopLocationButtonStatus();
+        
+    } catch (error) {
+        console.error('Error connecting device ' + deviceName + ':', error);
+        if (spinnerElement) spinnerElement.style.display = 'none';
+        if (connectBtn) connectBtn.style.display = 'inline-block';
+    } finally {
+        window.isConnectingToDevice = false;
+    }
 }
 
 
@@ -1915,105 +1832,46 @@ function showModalWifiModeRequired() {
 
 
 /// Function to disconnect device
-function disconnectDevice() {
-    var connectTextElement = document.getElementById('connectText');
-    var connectButton = document.getElementById('connect');
-    var disconnectButton = document.getElementById('disconnect');
-    var deviceDropdown = document.getElementById('device');
-    stopLocation();
-    // Use navigator.sendBeacon to make the POST request without waiting for a response
-    const data = JSON.stringify({});
-    //navigator.sendBeacon('/stop_tunnel', data);
-    console.log('Disconnect - Clearing');
+function disconnectDevice(udid = null, connectionType = null) {
+    if (udid && connectionType) {
+        // Disconnect a specific device
+        fetch('/disconnect_device_single', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({udid: udid, connType: connectionType})
+        }).catch(err => console.error(err));
+        console.log(`Disconnect - Clearing ${udid} over ${connectionType}`);
+        
+        // Remove locally from UI state and update button
+        let connectBtn = document.getElementById(`connect_btn_${udid}_${connectionType}`);
+        let disconnectBtn = document.getElementById(`disconnect_btn_${udid}_${connectionType}`);
+        let icon = document.getElementById(`icon_${udid}_${connectionType}`);
+        if (connectBtn) connectBtn.style.display = 'inline-block';
+        if (disconnectBtn) disconnectBtn.style.display = 'none';
+        if (icon) icon.className = 'fas fa-unlink text-secondary';
+        
+    } else {
+        // Fallback global disconnect
+        stopLocation();
+        
+        fetch('/stop_tunnel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        }).catch(err => console.error(err));
+        
+        console.log('Disconnect - Clearing');
 
-    var setLocationButton = document.getElementById('set-location');
-    var stopLocationButton = document.getElementById('stop-location');
-    stopLocationButton.disabled = true;
-    setLocationButton.disabled = true;
-
-    // Enable the device dropdown
-    if (deviceDropdown) {
-        deviceDropdown.disabled = false;
+        var setLocationButton = document.getElementById('set-location');
+        var stopLocationButton = document.getElementById('stop-location');
+        if (stopLocationButton) stopLocationButton.disabled = true;
+        if (setLocationButton) setLocationButton.disabled = true;
     }
 
-    // Update Disconnect button text and show Connect button
-    if (disconnectButton) {
-        disconnectButton.innerText = "Disconnecting, Please wait...";
-        disconnectButton.style.display = 'none';
-    }
-
-    // Hide rsdData text box
-    var rsdDataElement = document.getElementById('rsdData');
-    if (rsdDataElement) {
-        rsdDataElement.style.display = 'none';
-    }
-
-    // Reset connectTextElement
-    if (connectTextElement) {
-        connectTextElement.innerText = "Connect Device";
-    }
-
-    // Enable Connect button
-    if (connectButton) {
-        connectButton.disabled = false;
-    }
+    setTimeout(populateDeviceList, 500);
 }
 
 
-
-async function handleFuelTypeChange() {
-    var fuelTypeDropdown = document.getElementById('fuelType');
-    var fuelText = document.getElementById('fuelText');
-    var fuelRegionDropdown = document.getElementById('fuelRegion');
-    const selectedFuelRegion = fuelRegionDropdown.value;
-    const selectedFuelType = fuelTypeDropdown.value;
-    console.log('Selected Fuel Region = ', selectedFuelRegion);
-    fuelText.value = '';
-    fuelTypeDropdown.innerHTML = '';
-
-    try {
-        const response = await fetch(`/api/fuel_types?region=${selectedFuelRegion}`);
-        const fuelTypes = await response.json();
-        fuelTypes.sort();
-        fuelTypes.forEach(type => {
-            var option = document.createElement('option');
-            option.value = type;
-            option.text = type;
-            fuelTypeDropdown.add(option);
-        });
-        fuelTypeDropdown.value = selectedFuelType;
-        updateFuelText(selectedFuelType, selectedFuelRegion);
-    } catch (error) {
-        console.error('Error fetching fuel types:', error);
-    }
-}
-
-async function updateFuelText(selectedFuelType, selectedFuelRegion) {
-    if (!selectedFuelType || selectedFuelType === "undefined") {
-        console.warn("No fuel type selected, skipping data fetch.");
-        return;
-    }
-    var fuelTypeDropdown = document.getElementById('fuelType');
-    var fuelText = document.getElementById('fuelText');
-    var fuelDataCollapse = document.getElementById('fuelDataCollapse');
-    try {
-        const response = await fetch(`/api/data/${selectedFuelType}?region=${selectedFuelRegion}`);
-        const fuelTypeData = await response.json();
-        fuelText.value = `
-            Type: ${fuelTypeData.type}
-            Price: ${fuelTypeData.price}
-            Suburb: ${fuelTypeData.suburb}
-            State: ${fuelTypeData.state}
-            Lat: ${fuelTypeData.lat}
-            Lng: ${fuelTypeData.lng}
-        `;
-        setCoordinates(fuelTypeData.lat, fuelTypeData.lng);
-        handleSearch();
-        fuelDataCollapse.classList.toggle('show', !!fuelTypeData);
-    } catch (error) {
-        console.error('Error fetching fuel type data:', error);
-    }
-}
 
 function setLocationArrows() {
     fetch('/set_location', {
@@ -2075,18 +1933,17 @@ function stopLocation() {
 // Function to enable or disable the Set Location button based on conditions
 function updateSetLocationButtonStatus() {
     var setLocationButton = document.getElementById('set-location');
-    var rsdDataElement = document.getElementById('rsdData');
     var coordinatesInput = document.getElementById('coordinates');
-    var enableButton = rsdDataElement.value.trim() !== '' && coordinatesInput.value.trim() !== '';
-    setLocationButton.disabled = !enableButton;
+    var isConnected = document.querySelectorAll('.fa-link.text-success').length > 0;
+    var enableButton = isConnected && coordinatesInput.value.trim() !== '';
+    if (setLocationButton) setLocationButton.disabled = !enableButton;
 }
 
 // Function to enable or disable the Stop Location button based on conditions
 function updateStopLocationButtonStatus() {
     var stopLocationButton = document.getElementById('stop-location');
-    var rsdDataElement = document.getElementById('rsdData');
-    var enableButton = rsdDataElement.value.trim() !== '';
-    stopLocationButton.disabled = !enableButton;
+    var isConnected = document.querySelectorAll('.fa-link.text-success').length > 0;
+    if (stopLocationButton) stopLocationButton.disabled = !isConnected;
 }
 
 function exitApp() {
@@ -2151,13 +2008,13 @@ function displayToast(message) {
     // Set up the toast content
     toast.innerHTML = `
         <div class="toast-header">
-          <strong class="mr-auto">GeoPort</strong>
+          <strong class="mr-auto text-dark">LocationSimulator</strong>
           <small>Just Now</small>
           <button type="button" class="ml-2 mb-1 close" data-bs-dismiss="toast" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
         </div>
-        <div class="toast-body">
+        <div class="toast-body text-dark">
           ${message}
         </div>
       `;
@@ -2271,13 +2128,9 @@ function showAlertOrModal(errorMessage) {
 document.addEventListener('DOMContentLoaded', async function () {
     console.log("test");
     await initializeMap();
-    handleFuelTypeChange();
-    document.getElementById('rsdData').addEventListener('change', updateSetLocationButtonStatus);
     document.getElementById('coordinates').addEventListener('input', updateSetLocationButtonStatus);
     populateDeviceList();
-    updateStopLocationButtonStatus();  // Add this line to update the Stop Location button status
-    // Add event listener for keydown event
-    document.addEventListener('keydown', handleKeyDown);
+    updateStopLocationButtonStatus();
     initJoystick();
     console.log("listener loaded");
 
@@ -2301,3 +2154,238 @@ document.addEventListener('DOMContentLoaded', async function () {
 
 
 });
+
+// --- Favorites (我的最愛) Functionality ---
+const FAVORITES_STORAGE_KEY = 'geoport_favorites';
+
+function loadFavorites() {
+    const listEl = document.getElementById('favoritesList');
+    if (!listEl) return;
+
+    let favorites = [];
+    try {
+        favorites = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY)) || [];
+    } catch (e) {
+        console.error("Error loading favorites from local storage", e);
+    }
+
+    listEl.innerHTML = '';
+
+    if (favorites.length === 0) {
+        listEl.innerHTML = '<div class="text-muted small px-1">No favorites saved.</div>';
+        return;
+    }
+
+    favorites.forEach((fav, index) => {
+        const item = document.createElement('div');
+        item.className = 'd-flex justify-content-between align-items-center mb-1 pt-1 pb-1 px-2 rounded';
+        item.style.backgroundColor = 'rgba(128, 128, 128, 0.2)';
+        
+        let label = fav.name || `${fav.lat.toFixed(4)}, ${fav.lng.toFixed(4)}`;
+        
+        item.innerHTML = `
+            <div class="text-truncate flex-grow-1 small pe-2" title="${label}">${label}</div>
+            <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-primary py-0 px-2" onclick="useFavorite(${fav.lat}, ${fav.lng})" title="Go"><i class="fas fa-location-arrow" style="font-size: 0.8rem;"></i></button>
+                <button class="btn btn-sm btn-secondary py-0 px-2" onclick="renameFavorite(${index})" title="Rename"><i class="fas fa-pencil-alt" style="font-size: 0.8rem;"></i></button>
+                <button class="btn btn-sm btn-danger py-0 px-2" onclick="removeFavorite(${index})" title="Remove"><i class="fas fa-trash" style="font-size: 0.8rem;"></i></button>
+            </div>
+        `;
+        listEl.appendChild(item);
+    });
+}
+
+function addFavorite() {
+    let lat, lng;
+    
+    // First try to get from coordinates input
+    const coordInput = document.getElementById('coordinates');
+    const nameInput = document.getElementById('favoriteName');
+    
+    let coordsMatch = coordInput ? coordInput.value.match(/([-+]?[0-9]*\.?[0-9]+)[\s,]+([-+]?[0-9]*\.?[0-9]+)/) : null;
+    
+    if (coordsMatch) {
+         lat = parseFloat(coordsMatch[1]);
+         lng = parseFloat(coordsMatch[2]);
+    } else {
+        // Fallback to map center
+        if (window.map) {
+            const center = window.map.getCenter();
+            lat = center.lat;
+            lng = center.lng;
+        } else {
+            if (typeof displayToast === 'function') displayToast("Map not ready or no coordinates provided.");
+            return;
+        }
+    }
+    
+    const name = nameInput && nameInput.value.trim() !== '' ? nameInput.value.trim() : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    
+    let favorites = [];
+    try {
+        favorites = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY)) || [];
+    } catch (e) {}
+    
+    favorites.push({ lat: lat, lng: lng, name: name });
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+    
+    if (nameInput) nameInput.value = ''; // clear input
+    loadFavorites();
+}
+
+function removeFavorite(index) {
+    let favorites = [];
+    try {
+        favorites = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY)) || [];
+    } catch (e) {}
+    
+    if (index >= 0 && index < favorites.length) {
+        favorites.splice(index, 1);
+        localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+        loadFavorites();
+    }
+}
+
+function renameFavorite(index) {
+    let favorites = [];
+    try {
+        favorites = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY)) || [];
+    } catch (e) {}
+    
+    if (index >= 0 && index < favorites.length) {
+        const currentName = favorites[index].name || `${favorites[index].lat.toFixed(4)}, ${favorites[index].lng.toFixed(4)}`;
+        const newName = prompt("Enter new name for this location:", currentName);
+        
+        if (newName !== null && newName.trim() !== "") {
+            favorites[index].name = newName.trim();
+            localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+            loadFavorites();
+        }
+    }
+}
+
+function useFavorite(lat, lng) {
+    const input = document.getElementById('coordinates');
+    if (input) {
+        input.value = `${lat}, ${lng}`;
+    }
+    
+    if (typeof map !== 'undefined' && map) {
+        // Zoom into the map at level 16
+        map.flyTo([lat, lng], 16, { animate: true, duration: 1.5 });
+        
+        if (typeof marker !== 'undefined' && marker) {
+            marker.setLatLng([lat, lng]);
+        } else if (typeof L !== 'undefined') {
+            marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+            if (typeof handleMarkerDragEnd === 'function') {
+                marker.on('dragend', handleMarkerDragEnd);
+            }
+            if (typeof handleMarkerRightClick === 'function') {
+                marker.on('contextmenu', handleMarkerRightClick);
+            }
+        }
+        
+        if (typeof syncLocation === 'function') {
+            syncLocation(lat, lng);
+        }
+    } else if (typeof handleSearch === 'function') {
+        // Fallback
+        handleSearch();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadFavorites);
+
+// Excel Export function
+function exportFavoritesToExcel() {
+    if (typeof XLSX === 'undefined') {
+        alert("SheetJS library not loaded.");
+        return;
+    }
+    
+    let favorites = [];
+    try {
+        favorites = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY)) || [];
+    } catch (e) {}
+
+    if (favorites.length === 0) {
+        alert("No saved locations to export.");
+        return;
+    }
+
+    const data = favorites.map(fav => ({
+        Name: fav.name || "",
+        Location: `${fav.lat}, ${fav.lng}`
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Locations");
+    XLSX.writeFile(workbook, "location.xlsx");
+}
+
+// Excel Import function
+function importFavoritesFromExcel(event) {
+    if (typeof XLSX === 'undefined') {
+        alert("SheetJS library not loaded.");
+        return;
+    }
+    
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const data = e.target.result;
+        try {
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const json = XLSX.utils.sheet_to_json(worksheet);
+
+            let favorites = [];
+            try {
+                favorites = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY)) || [];
+            } catch (err) {}
+
+            let addedCount = 0;
+
+            json.forEach(row => {
+                if (row.Location) {
+                    const strLocation = String(row.Location).trim();
+                    const coordsMatch = strLocation.match(/([-+]?[0-9]*\.?[0-9]+)[\s,]+([-+]?[0-9]*\.?[0-9]+)/);
+                    if (coordsMatch) {
+                        const lat = parseFloat(coordsMatch[1]);
+                        const lng = parseFloat(coordsMatch[2]);
+                        const name = row.Name ? String(row.Name).trim() : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+                        
+                        // Check for duplicate matching lat, lng, and name
+                        const isDuplicate = favorites.some(fav => fav.lat === lat && fav.lng === lng && fav.name === name);
+                        
+                        if (!isDuplicate) {
+                            favorites.push({ lat: lat, lng: lng, name: name });
+                            addedCount++;
+                        }
+                    }
+                }
+            });
+
+            if (addedCount > 0) {
+                localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+                loadFavorites();
+                alert(`Imported ${addedCount} locations successfully.`);
+            } else {
+                alert("No new valid locations found to import (or all were duplicates).");
+            }
+            
+        } catch (error) {
+            console.error("Error parsing Excel file", error);
+            alert("Error reading Excel file. Make sure it has 'Name' and 'Location' columns.");
+        }
+        
+        // Reset file input
+        event.target.value = '';
+    };
+    reader.readAsArrayBuffer(file);
+}

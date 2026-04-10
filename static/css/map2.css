@@ -58,6 +58,7 @@
 }
 .leaflet-control-speed input[type=number] {
   -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .leaflet-bar a:hover, .leaflet-bar button:hover {
@@ -215,18 +216,7 @@
 }
 
 
-/* Adjust background color for fuelText in normal mode */
-#fuelText {
-    background: rgba(50, 50, 50, 0.1);
-    /* A slightly darker color to match the other text areas */
-    border: 1px solid rgba(0, 0, 0, 0.1);
-}
 
-/* Dark Mode Variant for fuelText (Already defined correctly) */
-.dark-mode #fuelText {
-    background: rgba(50, 50, 50, 0.2);
-    /* Matches the dark mode design */
-}
 
 
 html,
@@ -631,6 +621,7 @@ a:visited {
     justify-content: center;
     position: relative;
     backdrop-filter: blur(5px);
+    overflow: hidden;
 }
 
 .sidebar-header {

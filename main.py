@@ -87,18 +87,23 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger('werkzeug').disabled = True
 #log.disabled = True
 
-app = Flask(__name__)
+if getattr(sys, 'frozen', False):
+    base_directory = sys._MEIPASS
+    executable_dir = os.path.dirname(sys.executable)
+else:
+    base_directory = os.path.abspath(os.path.dirname(__file__))
+    executable_dir = base_directory
+
+app = Flask(__name__, template_folder=os.path.join(base_directory, 'templates'), static_folder=os.path.join(base_directory, 'static'))
 
 # Define constants
 # Get the home directory of the current user
 home_dir = os.path.expanduser("~")
 is_windows = sys.platform == 'win32'
-base_directory = getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(sys.argv[0])))
 flask_port = 54321
-api_url = "https://projectzerothree.info/api.php?format=json"
-api_data = None
 user_locale = None
-location = "23.10416999628627 120.35137049956495"
+# location = "23.10416999628627 120.35137049956495"
+location = "23.97565 120.9738819"
 rsd_data = None
 rsd_host = None
 rsd_port = None
@@ -114,11 +119,7 @@ pair_record = None
 error_message = None
 sudo_message = ""
 captured_output = None
-GITHUB_REPO = 'davesc63/GeoPort'
-CURRENT_VERSION_FILE = 'CURRENT_VERSION'
-BROADCAST_FILE = 'BROADCAST'
-APP_VERSION_NUMBER = "2.3.3"
-APP_VERSION_TYPE = "fuel"
+
 terminate_tunnel_thread = False
 terminate_location_thread = False
 location_threads = []
@@ -143,10 +144,10 @@ if current_platform == "darwin":
         sudo_message = "Not running as Sudo, this probably isn't going to work"
     else:
         logger.info("Running as Sudo")
-# Load config from config.json
-config_path = os.path.join(base_directory, 'config.json')
+# Load config from config.json beside the executable!
+config_path = os.path.join(executable_dir, 'config.json')
 if not os.path.exists(config_path):
-    # Fallback to current directory if base_directory has it elsewhere
+    # Fallback in case not found
     config_path = 'config.json'
 
 try:
@@ -158,23 +159,7 @@ except Exception as e:
     google_maps_api_key = ''
 
 
-def fetch_api_data(api_url):
 
-    global api_data
-    try:
-        api_data = requests.get(api_url, verify=False).json()
-        return api_data
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error: {e}")
-        logger.error(f"API is unreachable or there was an error during the request")
-        logger.error("Sorry - Fuel data is not available")
-        return None
-    except ConnectionError as e:
-        logger.error("Error: Name resolution failed.")
-        logger.error("Please check your internet connection or the correctness of the API URL.")
-        logger.error("Sorry - Fuel data is not available")
-        logger.error(f"Details: {e}")
-        return None
 
 def create_geoport_folder():
     # Define the path to the GeoPort folder
@@ -467,43 +452,36 @@ def get_wifi_with_retry(max_attempts=10):
     raise RuntimeError("No devices found after multiple attempts. Please see the FAQ.")
 @app.route('/stop_tunnel', methods=['POST'])
 def stop_tunnel_thread():
-    global terminate_tunnel_thread
+    global terminate_tunnel_thread, rsd_data_map
     logger.info("stop tunnel thread")
     # Set the terminate flag to True to stop the thread
     terminate_tunnel_thread = True
+    rsd_data_map = {}
     return jsonify("Tunnel stopped")
 
-@app.route('/api/data/<fuel_type>')
-def get_fuel_type_data(fuel_type):
-    selected_fuel_region = request.args.get('region', 'All')
+@app.route('/disconnect_device_single', methods=['POST'])
+def disconnect_device_single():
+    global rsd_data_map, terminate_tunnel_thread
+    data = request.get_json()
+    udid = data.get('udid')
+    conn_type = data.get('connType')
 
-    if api_data is None:
-        logger.error("API Data is none, Fuel data is not available")
-        return jsonify({}), 500  # Return an empty response with status code 500 (Internal Server Error)
+    logger.info(f"Disconnecting {udid} - {conn_type}")
 
-    all_region_data = next(
-        (region['prices'] for region in api_data['regions'] if region['region'] == selected_fuel_region), [])
+    # Standardize UI presentation names back to internal keys
+    if conn_type in ["Wifi", "Manual Wifi"]:
+        conn_type = "Network"
 
-    selected_data = next((entry for entry in all_region_data if entry['type'] == fuel_type), None)
+    if udid in rsd_data_map and conn_type in rsd_data_map[udid]:
+        del rsd_data_map[udid][conn_type]
+        if not rsd_data_map[udid]:
+            del rsd_data_map[udid]
 
-    return jsonify(selected_data)
+    if not rsd_data_map:
+        terminate_tunnel_thread = True
+        logger.info("All devices disconnected. Tunnel thread marked for termination.")
 
-
-@app.route('/api/fuel_types')
-def get_fuel_types():
-    selected_fuel_region = request.args.get('region', 'All')
-
-    if api_data is None:
-        logger.error("API Data is none, sorry - Fuel data is not available")
-        return jsonify({}), 500  # Return an empty response with status code 500 (Internal Server Error)
-
-    all_region_data = next(
-        (region['prices'] for region in api_data['regions'] if region['region'] == selected_fuel_region), [])
-
-    fuel_types = set(entry['type'] for entry in all_region_data)
-
-    return jsonify(list(fuel_types))
-
+    return jsonify({"success": True})
 
 @app.route('/update_location', methods=['POST'])
 def update_location():
@@ -517,6 +495,14 @@ def update_location():
     global location
     location = f"{lat} {lng}"
     return 'Location updated successfully'
+
+
+@app.route('/connection_status', methods=['GET'])
+def connection_status():
+    """Return whether the backend currently has an active device connection."""
+    active = bool(rsd_data_map)
+    count = sum(len(ct) for udid_map in rsd_data_map.values() for ct in [udid_map])
+    return jsonify({'connected': active, 'count': count, 'connected_udids': list(rsd_data_map.keys())})
 
 def check_pair_record(udid):
     global pair_record
@@ -619,7 +605,18 @@ def enable_developer_mode_route():
 
 
 
+connect_device_lock = threading.Lock()
+
+def with_connect_lock(func):
+    from functools import wraps
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with connect_device_lock:
+            return func(*args, **kwargs)
+    return wrapper
+
 @app.route('/connect_device', methods=['POST'])
+@with_connect_lock
 def connect_device():
     global udid, connection_type, ios_version, rsd_data, rsd_host, rsd_port, wifi_address
 
@@ -764,7 +761,7 @@ def connect_usb(data):
                 rsd_data = rsd_host, rsd_port
                 logger.info(f"RSD Data: {rsd_data}")
 
-            rsd_data_map.setdefault(udid, {})[connection_type] = {"host": rsd_host, "port": rsd_port}
+            rsd_data_map.setdefault(udid, {})[connection_type] = {"host": rsd_host, "port": rsd_port, "ios_version": ios_version, "lockdown": None}
             logger.info(f"Device Connection Map: {rsd_data_map}")
             return jsonify({'rsd_data': rsd_data})
 
@@ -779,13 +776,17 @@ def connect_usb(data):
 
             # create LockdownServiceProvider
             #global lockdown
-            lockdown = create_using_usbmux(udid, autopair=True)
+            try:
+                lockdown = asyncio.run(create_using_usbmux(udid, autopair=True))
+            except Exception as e:
+                logger.error(f"Failed to create lockdown client: {e}")
+                lockdown = None
             logger.info(f"Lockdown client = {lockdown}")
             #rsd_data = rsd_host, rsd_port
             rsd_host, rsd_port = rsd_data
 
             #rsd_data_map[udid] = rsd_data
-            rsd_data_map.setdefault(udid, {})[connection_type] = {"host": rsd_host, "port": rsd_port}
+            rsd_data_map.setdefault(udid, {})[connection_type] = {"host": rsd_host, "port": rsd_port, "ios_version": ios_version, "lockdown": lockdown}
 
             return jsonify({'message': 'iOS version less than 17', 'rsd_data': rsd_data})
 
@@ -841,7 +842,7 @@ def connect_wifi(data):
                 rsd_data = rsd_host, rsd_port
                 logger.info(f"RSD Data: {rsd_data}")
 
-            rsd_data_map.setdefault(udid, {})[connection_type] = {"host": rsd_host, "port": rsd_port}
+            rsd_data_map.setdefault(udid, {})[connection_type] = {"host": rsd_host, "port": rsd_port, "ios_version": ios_version, "lockdown": None}
             logger.info(f"Device Connection Map: {rsd_data_map}")
             return jsonify({'rsd_data': rsd_data})
 
@@ -851,11 +852,14 @@ def connect_wifi(data):
 
             # create LockdownServiceProvider
             global lockdown
-            lockdown = create_using_usbmux(udid, connection_type=connection_type, autopair=True)
-            #lockdown = create_using_tcp(wifi_address, udid)
+            try:
+                lockdown = asyncio.run(create_using_usbmux(udid, connection_type=connection_type, autopair=True))
+            except Exception as e:
+                logger.error(f"Failed to create lockdown client for wifi: {e}")
+                lockdown = None
             logger.info(f"Lockdown client = {lockdown}")
 
-            rsd_data_map.setdefault(udid, {})[connection_type] = {"host": rsd_host, "port": rsd_port}
+            rsd_data_map.setdefault(udid, {})[connection_type] = {"host": rsd_host, "port": rsd_port, "ios_version": ios_version, "lockdown": lockdown}
 
             return jsonify({'message': 'iOS version less than 17', 'rsd_data': rsd_data})
 
@@ -976,69 +980,101 @@ def mount_developer_image():
         error_message = str(e)
         return jsonify({'error': error_message})
 
-async def set_location_thread():
+async def device_location_loop(udid, conn_type, device_info):
     global terminate_location_thread, location
     last_sent_location = None
-
+    
+    rsd_host = device_info.get('host')
+    rsd_port = device_info.get('port')
+    ios_version = device_info.get('ios_version')
+    lockdown = device_info.get('lockdown')
+    
     try:
-        global rsd_host, rsd_port, udid, ios_version, connection_type
-
-        if udid in rsd_data_map:
-            if connection_type in rsd_data_map[udid]:
-                rsd_data = rsd_data_map[udid][connection_type]
-                rsd_host = rsd_data['host']
-                rsd_port = rsd_data['port']
-
-                if ios_version is not None and is_major_version_17_or_greater(ios_version):
-                    while not terminate_location_thread:
-                        try:
-                            async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
-                                async with DvtSecureSocketProxyService(sp_rsd) as dvt:
-                                    simulation = LocationSimulation(dvt)
-                                    last_sent_location = None
-                                    while not terminate_location_thread:
-                                        if location != last_sent_location and location:
-                                            try:
-                                                latitude, longitude = location.split()
-                                                await simulation.set(float(latitude), float(longitude))
-                                                last_sent_location = location
-                                                logger.debug(f"Location updated to {location}")
-                                            except Exception as e:
-                                                logger.error(f"Inner simulation loop error: {e}")
-                                                break # Break to outer loop to reconnect
-                                        await asyncio.sleep(0.1)
-                        except Exception as e:
-                            logger.error(f"Outer simulation service error: {e}. Retrying in 1s...")
-                            await asyncio.sleep(1.0)
-
-                elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
-                    while not terminate_location_thread:
-                        try:
-                            async with DvtSecureSocketProxyService(lockdown=lockdown) as dvt:
-                                simulation = LocationSimulation(dvt)
-                                await simulation.clear()
-                                last_sent_location = None
-                                while not terminate_location_thread:
-                                    if location != last_sent_location and location:
-                                        try:
-                                            latitude, longitude = location.split()
-                                            await simulation.set(float(latitude), float(longitude))
-                                            last_sent_location = location
-                                            logger.debug(f"Location updated to {location}")
-                                        except Exception as e:
-                                            logger.error(f"Inner simulation loop error: {e}")
-                                            break # Break to outer loop to reconnect
-                                    await asyncio.sleep(0.1)
-                        except Exception as e:
-                            logger.error(f"Outer simulation service error: {e}. Retrying in 1s...")
-                            await asyncio.sleep(1.0)
-
+        if ios_version is not None and is_major_version_17_or_greater(ios_version):
+            while not terminate_location_thread:
+                if udid not in rsd_data_map or conn_type not in rsd_data_map.get(udid, {}):
+                    break
+                try:
+                    async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
+                        async with DvtSecureSocketProxyService(sp_rsd) as dvt:
+                            simulation = LocationSimulation(dvt)
+                            last_sent_location = None
+                            while not terminate_location_thread:
+                                if udid not in rsd_data_map or conn_type not in rsd_data_map.get(udid, {}):
+                                    try:
+                                        await simulation.clear()
+                                    except Exception:
+                                        pass
+                                    break
+                                if location != last_sent_location and location:
+                                    try:
+                                        latitude, longitude = location.split()
+                                        await simulation.set(float(latitude), float(longitude))
+                                        last_sent_location = location
+                                        logger.debug(f"[{udid}] Location updated to {location}")
+                                    except Exception as e:
+                                        logger.error(f"[{udid}] Inner simulation loop error: {e}")
+                                        break
+                                await asyncio.sleep(0.1)
+                except Exception as e:
+                    logger.error(f"[{udid}] Outer simulation service error: {e}. Retrying in 1s...")
+                    await asyncio.sleep(1.0)
+                    
+        elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
+            while not terminate_location_thread:
+                if udid not in rsd_data_map or conn_type not in rsd_data_map.get(udid, {}):
+                    break
+                try:
+                    async with DvtSecureSocketProxyService(lockdown=lockdown) as dvt:
+                        simulation = LocationSimulation(dvt)
+                        await simulation.clear()
+                        last_sent_location = None
+                        while not terminate_location_thread:
+                            if udid not in rsd_data_map or conn_type not in rsd_data_map.get(udid, {}):
+                                try:
+                                    await simulation.clear()
+                                except Exception:
+                                    pass
+                                break
+                            if location != last_sent_location and location:
+                                try:
+                                    latitude, longitude = location.split()
+                                    await simulation.set(float(latitude), float(longitude))
+                                    last_sent_location = location
+                                    logger.debug(f"[{udid}] Location updated to {location}")
+                                except Exception as e:
+                                    logger.error(f"[{udid}] Inner simulation loop error: {e}")
+                                    break
+                            await asyncio.sleep(0.1)
+                except Exception as e:
+                    logger.error(f"[{udid}] Outer simulation service error: {e}. Retrying in 1s...")
+                    await asyncio.sleep(1.0)
+                    
     except asyncio.CancelledError:
-        # Handle cancellation gracefully
         pass
     except ConnectionResetError as cre:
         if "[Errno 54] Connection reset by peer" in str(cre):
-            logger.error("The Set Location buffer is full. Try to 'Stop Location' to clear old connections")
+            logger.error(f"[{udid}] The Set Location buffer is full. Try to 'Stop Location' to clear old connections")
+    except Exception as e:
+        logger.error(f"[{udid}] Error in device location loop: {e}")
+
+async def set_location_thread():
+    global terminate_location_thread, location, rsd_data_map
+    
+    try:
+        tasks = []
+        for udid, connections in rsd_data_map.items():
+            for conn_type, device_info in connections.items():
+                logger.debug(f"Starting location loop for {udid} over {conn_type}")
+                tasks.append(device_location_loop(udid, conn_type, device_info))
+                
+        if tasks:
+            await asyncio.gather(*tasks)
+        else:
+            logger.warning("No devices in rsd_data_map to set location.")
+            
+    except asyncio.CancelledError:
+        pass
     except Exception as e:
         logger.error(f"Error setting location: {e}")
 
@@ -1116,76 +1152,34 @@ def set_location():
 async def stop_location():
     try:
         stop_set_location_thread()
-        global rsd_data
-        global rsd_host
-        global rsd_port
-        global lockdown
-        global ios_version, udid, connection_type
-        logger.info(f"stop set location data:  {rsd_data}")
-
-
-        if udid in rsd_data_map:
-            if connection_type in rsd_data_map[udid]:
-                rsd_data = rsd_data_map[udid][connection_type]
-
-                rsd_host = rsd_data['host']
-                rsd_port = rsd_data['port']
-
-            if ios_version is not None and is_major_version_17_or_greater(ios_version):
-                async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
-                    async with DvtSecureSocketProxyService(sp_rsd) as dvt:
-                        await LocationSimulation(dvt).clear()
-                        logger.warning("Location Cleared Successfully")
-                return 'Location cleared successfully'
-
-            elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
-                async with DvtSecureSocketProxyService(lockdown=lockdown) as dvt:
-
-                    await LocationSimulation(dvt).clear()
-                    logger.warning("Location Cleared Successfully")
-                return 'Location cleared successfully'
-        return 'Location cleared successfully'
+        global rsd_data_map
+        
+        for udid, connections in rsd_data_map.items():
+            for conn_type, device_info in connections.items():
+                rsd_host = device_info.get('host')
+                rsd_port = device_info.get('port')
+                ios_version = device_info.get('ios_version')
+                lockdown = device_info.get('lockdown')
+                
+                try:
+                    if ios_version is not None and is_major_version_17_or_greater(ios_version):
+                        async with RemoteServiceDiscoveryService((rsd_host, rsd_port)) as sp_rsd:
+                            async with DvtSecureSocketProxyService(sp_rsd) as dvt:
+                                await LocationSimulation(dvt).clear()
+                                logger.warning(f"[{udid}] Location Cleared Successfully")
+                    elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
+                        async with DvtSecureSocketProxyService(lockdown=lockdown) as dvt:
+                            await LocationSimulation(dvt).clear()
+                            logger.warning(f"[{udid}] Location Cleared Successfully")
+                except Exception as e:
+                    logger.error(f"[{udid}] Error clearing location: {e}")
+                    
+        return 'All locations cleared successfully'
     except Exception as e:
         error_message = str(e)
         return jsonify({'error': error_message})
 
 
-def get_github_version():
-    try:
-        # Make a request to the GitHub API to get the content of CURRENT_VERSION file
-        url = f'https://raw.githubusercontent.com/{GITHUB_REPO}/main/{CURRENT_VERSION_FILE}'
-        response = requests.get(url)
-
-        response.raise_for_status()
-
-        # Parse the content of the file
-        github_version = response.text.strip()
-
-
-        return github_version
-    except requests.RequestException as e:
-
-        return None
-
-
-def get_github_broadcast():
-    try:
-        # Make a request to the GitHub API to get the content of CURRENT_VERSION file
-        url = f'https://raw.githubusercontent.com/{GITHUB_REPO}/main/{BROADCAST_FILE}'
-        logger.error(f"Github URL: {url}")
-
-        response = requests.get(url, verify=False)
-        logger.error(f"github response: {response}")
-        #response.raise_for_status()
-
-        # Parse the content of the file
-        github_broadcast = response.text.strip()
-        logger.error(f"GITHUB BROADCAST MESSAGE:")
-
-        return github_broadcast
-    except requests.RequestException as e:
-
-        return None
 
 
 def remove_ansi_escape_codes(text):
@@ -1413,31 +1407,13 @@ def exit_app():
 @app.route('/')
 def index():
     # global error_message
-    fetch_api_data(api_url)
-    # Get the GitHub version
-    github_version = get_github_version()
-    github_broadcast = get_github_broadcast()
     user_locale = get_user_country()
     logger.info(f"Country: {user_locale}")
     logger.info(f"Current platform: {platform}")
-    logger.info(f"App Version = {APP_VERSION_NUMBER}")
     logger.info(f"base dir =  {base_directory}")
-    logger.info(f"GitHub Version = {github_version}")
 
-    #list_devices()
-    # Compare with the locally hardcoded version
-    if github_version and github_version > APP_VERSION_NUMBER:
-        version_message = f"Update available. New Version is {github_version}"
-
-    elif github_version and github_version < APP_VERSION_NUMBER:
-        version_message = f"Beta Testing. App version is {APP_VERSION_NUMBER} - github is {github_version}"
-
-    else:
-        version_message = None
-
-    return render_template('map2.html', version_message=version_message, github_broadcast=github_broadcast,
-                           user_locale=user_locale, app_version_num=APP_VERSION_NUMBER,
-                           app_version_type=APP_VERSION_TYPE, error_message=error_message, current_platform=platform,
+    return render_template('map2.html',
+                           user_locale=user_locale, error_message=error_message, current_platform=platform,
                            sudo_message=sudo_message, google_maps_api_key=google_maps_api_key)
 
 
