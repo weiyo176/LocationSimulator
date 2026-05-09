@@ -86,6 +86,14 @@
     border-bottom: none !important;
 }
 
+/* Dual Playback Button Overrides - Only Icon Color */
+.btn-playback-green i {
+    color: rgba(40, 167, 69, 1) !important;
+}
+.btn-playback-blue i {
+    color: rgba(0, 123, 255, 1) !important;
+}
+
 /* Speed Control specific style */
 .leaflet-control-speed {
     background: var(--glass-background);
@@ -171,6 +179,40 @@
 
 .menu-item:hover {
     background-color: #e9ecef;
+}
+
+/* Jump to Current Location Button */
+.jump-to-marker-btn {
+    position: fixed;
+    bottom: 25px;
+    right: 25px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: rgba(30, 30, 40, 0.82) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: var(--accent-color) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 1.4rem !important;
+    cursor: pointer !important;
+    z-index: 1000 !important;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+.jump-to-marker-btn:hover {
+    background: var(--accent-color) !important;
+    color: #fff !important;
+    transform: scale(1.1) rotate(90deg);
+    box-shadow: 0 12px 40px rgba(78, 205, 196, 0.4) !important;
+}
+
+.jump-to-marker-btn:active {
+    transform: scale(0.92);
 }
 
 /* Custom popup styling */
@@ -363,10 +405,9 @@ body {
 .form-select,
 .custom-select,
 select {
-    background: rgba(255, 255, 255, 0.1);
-    /* Light mode background for form controls */
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    color: var(--text-color, black);
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #ffffff;
     border-radius: 12px;
     backdrop-filter: blur(4px);
 }
@@ -380,9 +421,14 @@ select {
     color: var(--text-color);
 }
 
-.form-control::placeholder,
-.form-select option {
-    color: rgba(255, 255, 255, 0.7);
+.form-control::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.form-select option,
+select option {
+    background-color: #2c2c2c;
+    color: #ffffff;
 }
 
 .modal-content {
@@ -723,4 +769,157 @@ a:visited {
     #sidebar:not(.collapsed) ~ .map-container .leaflet-left {
         left: 340px !important; /* Move map controls when sidebar is open */
     }
+}
+
+/* Google Maps style blue dot marker */
+.blue-dot-container, .orange-dot-container {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.blue-dot, .orange-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+    position: relative;
+    z-index: 1000;
+}
+
+.blue-dot {
+    background-color: #4285f4;
+}
+
+.orange-dot {
+    background-color: #ff9800;
+    width: 12px; /* Slightly smaller for path points */
+    height: 12px;
+}
+
+.blue-dot::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    right: -3px;
+    bottom: -3px;
+    border-radius: 50%;
+    background: rgba(66, 133, 244, 0.3);
+    animation: pulse-ring 2s cubic-bezier(0.25, 0.5, 0.2, 1) infinite;
+    z-index: -1;
+}
+
+@keyframes pulse-ring {
+    0% {
+        transform: scale(0.5);
+        opacity: 0.8;
+    }
+    80%, 100% {
+        transform: scale(2.5);
+        opacity: 0;
+    }
+}
+
+/* Pikmin Bloom style Big Flower */
+.flower-dot-container {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.flower-dot {
+    background-color: #ffb6c1; /* Light pink core */
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 3px solid #8fce00; /* Green border like leaves */
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+    position: relative;
+    z-index: 1000;
+}
+
+/* Base style for the 40m circle (handled mostly by Leaflet options, but can be targeted via path) */
+.planting-range {
+    pointer-events: none; /* Make sure it doesn't block map clicks */
+}
+
+/* Collapsible Area Headers */
+.area-header {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 4px 8px;
+    margin-bottom: 2px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background 0.2s ease;
+}
+
+.area-header:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.dark-mode .area-header {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.dark-mode .area-header:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.area-content {
+    padding-left: 10px;
+    display: none; /* hidden by default */
+}
+
+.area-content.show {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Address Display */
+.address-display {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.8) !important;
+    line-height: 1.2;
+}
+
+.dark-mode .address-display {
+    color: rgba(255, 255, 255, 0.6) !important;
+}
+/* Reconnection Overlay */
+.reconnect-overlay {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    pointer-events: none;
+}
+
+.reconnect-content {
+    background: rgba(220, 53, 69, 0.9);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 30px;
+    font-weight: 600;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    animation: reconnectSlideDown 0.3s ease-out;
+}
+
+@keyframes reconnectSlideDown {
+    from { transform: translate(-50%, -100%); opacity: 0; }
+    to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+.reconnecting-icon {
+    animation: fa-spin 2s infinite linear;
 }

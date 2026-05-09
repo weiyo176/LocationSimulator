@@ -3,6 +3,7 @@
 
 <head>
     <title>GeoPort - Online Update</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://cdn.jsdelivr.net/npm/babel-polyfill@latest/dist/polyfill.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/whatwg-fetch@3.6.2/dist/fetch.umd.min.js"></script>
@@ -75,10 +76,16 @@
 
 
 
-<body>
+<body class="dark-mode">
     <button class="sidebar-toggle-mobile" onclick="toggleSidebar()">
         <i class="fas fa-bars"></i>
     </button>
+    <div id="reconnectOverlay" class="reconnect-overlay" style="display: none;">
+        <div class="reconnect-content">
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            連線遺失，正在自動重連中... (Connecting...)
+        </div>
+    </div>
     <div class="app-wrapper">
         <aside id="sidebar">
             <div class="sidebar-header">
@@ -98,8 +105,23 @@
                 <div class="d-flex flex-column gap-2">
                     <div class="form-check form-switch ms-4">
                         <input class="form-check-input" type="checkbox" role="switch" id="darkModeSwitch"
-                            onchange="toggleDarkMode()">
+                            onchange="toggleDarkMode()" checked>
                         <label class="form-check-label" for="darkModeSwitch">Dark Mode</label>
+                    </div>
+                    <!-- New: Local Time Display -->
+                    <div class="ms-4 d-flex align-items-center gap-2 mt-1 opacity-75">
+                        <i class="fas fa-map-marker-alt" style="font-size: 0.8rem;"></i>
+                        <span id="locationDisplay" class="fw-bold" style="font-size: 0.85rem;">
+                            --
+                        </span>
+                        <div style="border-left: 1px solid rgba(255,255,255,0.3); height: 12px; margin-left: 4px; margin-right: 4px;"></div>
+                        <i class="fas fa-clock" style="font-size: 0.8rem;"></i>
+                        <span id="localTimeDisplay" style="font-size: 0.85rem; font-family: 'Courier New', Courier, monospace; letter-spacing: 0.5px;">
+                            --/--/-- --:--:--
+                        </span>
+                        <span id="timeWarning" class="text-warning small d-none" title="Estimated time based on longitude. May be inaccurate.">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </span>
                     </div>
 
                 </div>
@@ -130,6 +152,49 @@
 
 
 
+            <div class="sidebar-section" id="paths-section">
+                <!-- Row 1: Title and I/O utilities -->
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <div class="sidebar-section-title mb-0">Saved Paths</div>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75" onclick="document.getElementById('importPathsInput').click()" title="Import GPX/ZIP"><i class="fas fa-file-import" style="font-size: 0.8rem;"></i></button>
+                        <input type="file" id="importPathsInput" accept=".gpx, .zip" style="display: none;" multiple onchange="importPaths(event)">
+                        <span class="ms-1 opacity-25">|</span>
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75" onclick="exportAllPathsToGPX()" title="Export All (ZIP)"><i class="fas fa-file-archive" style="font-size: 0.8rem;"></i></button>
+                    </div>
+                </div>
+                <!-- Row 2: Visibility and Creation controls -->
+                <div class="d-flex gap-1 mb-2">
+                    <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 flex-grow-1" onclick="toggleAllPaths(true)" title="Show All">
+                        <i class="fas fa-check-circle me-1" style="font-size: 0.8rem;"></i><small>Show All</small>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 flex-grow-1" onclick="toggleAllPaths(false)" title="Hide All">
+                        <i class="fas fa-times-circle me-1" style="font-size: 0.8rem;"></i><small>Hide All</small>
+                    </button>
+                    <span class="mx-1 opacity-25">|</span>
+                    <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 flex-grow-2" onclick="saveActivePathFromDrawing()" title="Save Current Draw">
+                        <i class="fas fa-save me-1" style="font-size: 0.8rem;"></i><small>Save Drawing</small>
+                    </button>
+                </div>
+                <!-- Teleport Mode Controls -->
+                <div class="d-flex align-items-center gap-2 mb-2 px-1">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="teleportEnabled" onchange="toggleTeleport()">
+                        <label class="form-check-label small" for="teleportEnabled" style="font-size: 0.75rem;">瞬移模式 (Teleport)</label>
+                    </div>
+                    <div id="teleportConfig" style="display: none;" class="align-items-center gap-1">
+                        <span class="small opacity-75" style="font-size: 0.75rem;">每</span>
+                        <input type="number" id="teleportInterval" class="form-control form-control-sm py-0 px-1" style="width: 40px; height: 20px; font-size: 0.75rem; background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.2);" value="5" min="1">
+                        <span class="small opacity-75" style="font-size: 0.75rem;">點瞬移，後停</span>
+                        <input type="number" id="teleportWaitTime" class="form-control form-control-sm py-0 px-1" style="width: 40px; height: 20px; font-size: 0.75rem; background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.2);" value="0" min="0">
+                        <span class="small opacity-75" style="font-size: 0.75rem;">秒</span>
+                    </div>
+                </div>
+                <div id="pathsList" class="d-flex flex-column gap-1" style="max-height: 200px; overflow-y: auto;">
+                    <div class="text-muted small px-1">No paths saved.</div>
+                </div>
+            </div>
+
             <div class="sidebar-section" id="favorites-section">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <div class="sidebar-section-title mb-0">Saved Locations</div>
@@ -150,6 +215,23 @@
                 </div>
             </div>
 
+            <div class="sidebar-section" id="flowers-section">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="sidebar-section-title mb-0">Big Flowers</div>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75" onclick="toggleAllFlowers(true)" title="Show All"><i class="fas fa-check-double" style="font-size: 0.8rem;"></i></button>
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 ms-1" onclick="toggleAllFlowers(false)" title="Hide All"><i class="fas fa-times-circle" style="font-size: 0.8rem;"></i></button>
+                        <span class="ms-2 opacity-25">|</span>
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75" onclick="document.getElementById('importFlowersInput').click()" title="Import Excel"><i class="fas fa-file-import" style="font-size: 0.8rem;"></i></button>
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 ms-1" onclick="exportFlowersToExcel()" title="Export Excel"><i class="fas fa-file-export" style="font-size: 0.8rem;"></i></button>
+                        <input type="file" id="importFlowersInput" accept=".xlsx, .xls" style="display: none;" onchange="importFlowersFromExcel(event)">
+                    </div>
+                </div>
+                <div id="flowersList" class="d-flex flex-column gap-2" style="max-height: 250px; overflow-y: auto; padding-right: 5px;">
+                    <!-- Items populated by JS -->
+                </div>
+            </div>
+
             <div class="sidebar-section">
                 <div class="sidebar-section-title">Location Control</div>
                 <div class="mb-3">
@@ -158,6 +240,7 @@
                         <input type="text" class="form-control form-control-sm" id="coordinates">
                         <button type="button" class="btn btn-sm" id="search" onclick="handleSearch()">Search</button>
                     </div>
+                    <div id="addressDisplay" class="address-display mt-1 text-muted small px-1" style="display: none;"></div>
                 </div>
 
                 <div id="joystick-wrapper" class="mb-3">
@@ -188,6 +271,10 @@
 
         <main class="map-container">
             <div id="map"></div>
+            <!-- Floating Jump Button -->
+            <div class="jump-to-marker-btn" title="Jump to Current Location" onclick="jumpToCurrentLocation()">
+                <i class="fas fa-crosshairs"></i>
+            </div>
         </main>
     </div>
 
@@ -261,6 +348,43 @@
         </div>
     </div>
 
+    <!-- Edit Flower Modal -->
+    <div class="modal fade" id="editFlowerModal" tabindex="-1" aria-labelledby="editFlowerModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content glassmorphic-card">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editFlowerModalLabel"><i class="fas fa-edit me-2"></i>Edit Item</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editFlowerId">
+                    <input type="hidden" id="editItemType" value="flower"> <!-- NEW: 'flower' or 'path' -->
+                    <div class="mb-3">
+                        <label for="editFlowerName" class="form-label small opacity-75" id="editItemNameLabel">Name</label>
+                        <input type="text" class="form-control" id="editFlowerName" placeholder="Enter name...">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editFlowerAreaSelect" class="form-label small opacity-75">Select Group (Admin District)</label>
+                        <select class="form-select" id="editFlowerAreaSelect">
+                            <!-- Populated via JS -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editFlowerAreaCustom" class="form-label small opacity-75">Or Create New Group</label>
+                        <input type="text" class="form-control" id="editFlowerAreaCustom" placeholder="New area name...">
+                    </div>
+                </div>
+                <div class="modal-footer d-flex justify-content-between">
+                    <button type="button" class="btn btn-danger" onclick="deleteFromEditModal()"><i class="fas fa-trash-alt me-1"></i>Delete</button>
+                    <div>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="cancelFlowerEdit()">Cancel</button>
+                        <button type="button" class="btn btn-primary" onclick="saveFlowerEdit()">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="developerModeRequiredModal" tabindex="-1" role="dialog"
         aria-labelledby="developerModeRequiredModalLabel" aria-hidden="true">
         <div class="modal-dialog" role="document">
@@ -325,6 +449,40 @@
         </div>
     </div>
 
+    <div class="modal fade" id="dayCrossingModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="dayCrossingLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title" id="dayCrossingLabel">
+                        <i class="fas fa-exclamation-triangle me-2"></i>明日跨日警告
+                    </h5>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <p class="mb-2">目標位置相對於您目前的時間已經進入<b>「明天」</b>。</p>
+                    <p id="dayCrossingDetails" class="fw-bold mb-4"></p>
+                    <p class="text-warning mb-0" style="font-weight: 700; font-size: 0.95rem;">
+                         <i class="fas fa-info-circle me-1"></i> 切換至未來日期可能會影響時間相關的地點事件或獎勵<br>(如：蘑菇次數、社群日等)。
+                    </p>
+                </div>
+                <div class="modal-footer flex-column border-top-0">
+                    <div class="d-flex w-100 gap-2 mb-2">
+                        <button type="button" class="btn btn-warning flex-grow-1" onclick="confirmDayCrossing()" style="font-weight: 700;">確認前往</button>
+                    </div>
+                    <div class="d-flex w-100 gap-2 mb-3">
+                        <button type="button" class="btn btn-outline-light flex-grow-1" onclick="stayAtPreview()">取消，停留在預覽位置</button>
+                        <button type="button" class="btn btn-secondary flex-grow-1" onclick="cancelDayCrossing()">取消，返回原位置</button>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="ignoreDayCrossingCheck">
+                        <label class="form-check-label small" for="ignoreDayCrossingCheck">
+                            在本次使用中不再提示
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Toasts -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3">
         <div id="liveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
@@ -337,6 +495,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script>
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');

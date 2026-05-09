@@ -27,7 +27,7 @@ from pymobiledevice3.remote.tunnel_service import (
     CoreDeviceTunnelProxy,
     TunnelProtocol,
 )
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 from urllib3.exceptions import InsecureRequestWarning, ConnectionError
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 from contextlib import asynccontextmanager
@@ -210,38 +210,57 @@ def start_tunnel_thread(service_provider):
     return
 
 async def start_quic_tunnel(service_provider: RemoteServiceDiscoveryService) -> None:
-
     logger.warning("Start USB QUIC tunnel")
+    global terminate_tunnel_thread, rsd_port, rsd_host
+    
+    # Capture current device context to handle retries correctly
+    curr_udid = udid
+    curr_conn_type = connection_type
 
-    global terminate_tunnel_thread
-    stop_remoted_if_required()
-    #install_driver_if_required()
+    max_retries = 10
+    retry_count = 0
 
-    # if sys.platform == 'win32':
-    #     logger.info("Windows System - Driver Check Required")
-    #     if version_check(ios_version):
-    #         logger.warning("Installing WeTest Driver - QUIC Tunnel")
-    #         cli_install_wetest_drivers()
-
-    service = await create_core_device_tunnel_service_using_rsd(service_provider, autopair=True)
-
-    async with service.start_quic_tunnel() as tunnel_result:
-        resume_remoted_if_required()
-
-        logger.info(f"QUIC Address: {tunnel_result.address}")
-        logger.info(f"QUIC Port: {tunnel_result.port}")
-        global rsd_port
-        global rsd_host
-        rsd_host = tunnel_result.address
-
-        rsd_port = str(tunnel_result.port)
-
-
-        while True:
-            if terminate_tunnel_thread is True:
+    while retry_count < max_retries:
+        try:
+            if terminate_tunnel_thread:
                 return
-            # wait user input while the asyncio tasks execute
-            await asyncio.sleep(.5)
+
+            stop_remoted_if_required()
+            service = await create_core_device_tunnel_service_using_rsd(service_provider, autopair=True)
+
+            async with service.start_quic_tunnel() as tunnel_result:
+                resume_remoted_if_required()
+                logger.info(f"QUIC Address: {tunnel_result.address}")
+                logger.info(f"QUIC Port: {tunnel_result.port}")
+                
+                rsd_host = tunnel_result.address
+                rsd_port = str(tunnel_result.port)
+                
+                # Reset reconnect status on success
+                if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                    rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = False
+                retry_count = 0 
+
+                while not terminate_tunnel_thread:
+                    await asyncio.sleep(.5)
+                return
+
+        except Exception as e:
+            retry_count += 1
+            logger.error(f"QUIC Tunnel Error (Attempt {retry_count}/{max_retries}): {e}")
+            rsd_host = None
+            rsd_port = None
+            
+            if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = True
+            
+            if retry_count >= max_retries:
+                logger.error("Max retries reached for QUIC tunnel. Giving up.")
+                if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                    rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = False
+                return
+            
+            await asyncio.sleep(2)
 
 
 # Define the function to be executed in the thread
@@ -274,31 +293,53 @@ async def start_tcp_tunnel(service_provider) -> None:
     logger.warning("Start USB TCP tunnel")
     global terminate_tunnel_thread, rsd_port, rsd_host
 
-    try:
-        stop_remoted_if_required()
+    # Capture current device context to handle retries correctly
+    curr_udid = udid
+    curr_conn_type = connection_type
 
-        lockdown = await create_using_usbmux(udid, autopair=True)
-        logger.info(f"TCP Tunnel lockdown: {lockdown}")
+    max_retries = 10
+    retry_count = 0
 
-        # ✅ 正確方式：針對 USB Lockdown 連線建立 CoreDeviceTunnelService 代理
-        service = await CoreDeviceTunnelProxy.create(lockdown)
+    while retry_count < max_retries:
+        try:
+            if terminate_tunnel_thread:
+                return
 
-        async with service.start_tcp_tunnel() as tunnel_result:
-            resume_remoted_if_required()
-            rsd_host = tunnel_result.address
-            rsd_port = str(tunnel_result.port)
-            logger.info(f"TCP Address: {rsd_host}")
-            logger.info(f"TCP Port: {rsd_port}")
+            stop_remoted_if_required()
+            lockdown = await create_using_usbmux(udid, autopair=True)
+            service = await CoreDeviceTunnelProxy.create(lockdown)
 
-            while True:
-                if terminate_tunnel_thread is True:
-                    return
-                await asyncio.sleep(.5)
+            async with service.start_tcp_tunnel() as tunnel_result:
+                resume_remoted_if_required()
+                rsd_host = tunnel_result.address
+                rsd_port = str(tunnel_result.port)
+                logger.info(f"TCP Address: {rsd_host}")
+                logger.info(f"TCP Port: {rsd_port}")
 
-    except Exception as e:
-        logger.error(f"start_tcp_tunnel FAILED: {e}")
-        rsd_host = None
-        rsd_port = None
+                if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                    rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = False
+                retry_count = 0
+
+                while not terminate_tunnel_thread:
+                    await asyncio.sleep(.5)
+                return
+
+        except Exception as e:
+            retry_count += 1
+            logger.error(f"TCP Tunnel Error (Attempt {retry_count}/{max_retries}): {e}")
+            rsd_host = None
+            rsd_port = None
+            
+            if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = True
+                
+            if retry_count >= max_retries:
+                logger.error("Max retries reached for TCP tunnel. Giving up.")
+                if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                    rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = False
+                return
+            
+            await asyncio.sleep(2)
 
 
 
@@ -472,9 +513,14 @@ def disconnect_device_single():
     if conn_type in ["Wifi", "Manual Wifi"]:
         conn_type = "Network"
 
-    if udid in rsd_data_map and conn_type in rsd_data_map[udid]:
-        del rsd_data_map[udid][conn_type]
-        if not rsd_data_map[udid]:
+    if udid in rsd_data_map:
+        if conn_type in rsd_data_map[udid]:
+            del rsd_data_map[udid][conn_type]
+        else:
+            logger.warning(f"Connection type {conn_type} not found for {udid}. Clearing all connections to prevent stuck state.")
+            del rsd_data_map[udid]
+
+        if udid in rsd_data_map and not rsd_data_map[udid]:
             del rsd_data_map[udid]
 
     if not rsd_data_map:
@@ -499,10 +545,121 @@ def update_location():
 
 @app.route('/connection_status', methods=['GET'])
 def connection_status():
-    """Return whether the backend currently has an active device connection."""
+    """Return whether the backend currently has an active device connection or is reconnecting."""
     active = bool(rsd_data_map)
-    count = sum(len(ct) for udid_map in rsd_data_map.values() for ct in [udid_map])
-    return jsonify({'connected': active, 'count': count, 'connected_udids': list(rsd_data_map.keys())})
+    count = 0
+    reconnecting_udids = []
+    connected_map = {}
+    
+    for udid, connections in rsd_data_map.items():
+        is_udid_reconnecting = False
+        connected_map[udid] = list(connections.keys())
+        for conn_type, info in connections.items():
+            count += 1
+            if info.get('is_reconnecting'):
+                is_udid_reconnecting = True
+        if is_udid_reconnecting:
+            reconnecting_udids.append(udid)
+            
+    return jsonify({
+        'connected': active, 
+        'count': count, 
+        'connected_udids': list(rsd_data_map.keys()),
+        'connected_map': connected_map,
+        'reconnecting_udids': reconnecting_udids
+    })
+
+@app.route('/api/reverse-geocode', methods=['GET'])
+def reverse_geocode():
+    """Proxy for Nominatim reverse geocoding to solve CORS issues."""
+    lat = request.args.get('lat')
+    lon = request.args.get('lon')
+    if not lat or not lon:
+        return jsonify({'error': 'Missing coordinates'}), 400
+    
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=14&addressdetails=1"
+        # Nominatim requires a descriptive User-Agent
+        headers = {
+            'User-Agent': 'GeoPort/1.0 (Location Simulation Tool; https://github.com/weiyo176/LocationSimulator)',
+            'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
+        }
+        response = requests.get(url, headers=headers, timeout=5)
+        response.raise_for_status()
+        return jsonify(response.json())
+    except Exception as e:
+        logger.error(f"Geocoding Proxy Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Global Timezone Cache
+timezone_cache = {}
+
+@app.route('/api/get-timezone', methods=['GET'])
+def get_timezone():
+    """Proxy for timezone lookups with caching and multi-tier backup."""
+    lat = request.args.get('lat')
+    lon = request.args.get('lon')
+    if not lat or not lon:
+        return jsonify({'error': 'Missing coordinates'}), 400
+
+    # 1. Server-side caching (rounded for region matching)
+    cache_key = f"{round(float(lat), 3)}_{round(float(lon), 3)}"
+    if cache_key in timezone_cache:
+        return jsonify(timezone_cache[cache_key])
+
+    # 2. Sequential API attempts
+    success_data = None
+    
+    # Tier A: BigDataCloud (Very fast and stable, now with fixed parsing)
+    try:
+        url = f"https://api.bigdatacloud.net/data/reverse-geocode-client?latitude={lat}&longitude={lon}&localityLanguage=en"
+        resp = requests.get(url, timeout=4)
+        if resp.ok:
+            data = resp.json()
+            # Try primary field
+            tz_id = data.get("timeZone", {}).get("id")
+            # Try secondary field (Informative locality info) - common in free tier
+            if not tz_id:
+                for info in data.get("localityInfo", {}).get("informative", []):
+                    if info.get("description") == "time zone":
+                        tz_id = info.get("name")
+                        break
+            
+            if tz_id:
+                success_data = {"timeZone": tz_id, "isEstimate": False}
+    except Exception:
+        pass
+
+    # Tier B: TimeAPI (Comprehensive, but sometimes slow)
+    if not success_data:
+        try:
+            url = f"https://timeapi.io/api/Time/current/coordinate?latitude={lat}&longitude={lon}"
+            resp = requests.get(url, timeout=6) # Increased timeout for slow paths
+            if resp.ok:
+                data = resp.json()
+                if data.get("timeZone"):
+                    success_data = {"timeZone": data.get("timeZone"), "isEstimate": False}
+        except Exception:
+            pass
+
+    # Finalize and Cache
+    if success_data:
+        # Cache the result before returning
+        if len(timezone_cache) > 200: # Limit cache size
+            timezone_cache.clear()
+        timezone_cache[cache_key] = success_data
+        return jsonify(success_data)
+
+    # Fallback: Manual longitude-based calculation (Estimate)
+    try:
+        offset = round(float(lon) / 15.0)
+        return jsonify({
+            "timeZone": None,
+            "offset": offset,
+            "isEstimate": True
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 def check_pair_record(udid):
     global pair_record
@@ -873,75 +1030,109 @@ def connect_wifi(data):
 
 
 async def start_wifi_tcp_tunnel() -> None:
-
     logger.warning(f"Start Wifi TCP Tunnel")
+    global terminate_tunnel_thread, rsd_port, rsd_host
 
-    global terminate_tunnel_thread
-    stop_remoted_if_required()
+    # Capture current device context to handle retries correctly
+    curr_udid = udid
+    curr_conn_type = connection_type
 
+    max_retries = 10
+    retry_count = 0
 
-    try:
-        lockdown = await create_using_usbmux(udid)
-        
-        # Use the class method .create() which internally calls
-        # lockdown.start_lockdown_service() to get a ServiceConnection
-        service = await CoreDeviceTunnelProxy.create(lockdown)
-        
-        async with service.start_tcp_tunnel() as tunnel_result:
-            resume_remoted_if_required()
+    while retry_count < max_retries:
+        try:
+            if terminate_tunnel_thread:
+                return
 
-            logger.info(f'Identifier: {service.remote_identifier}')
-            logger.info(f'Interface: {tunnel_result.interface}')
-            logger.info(f'RSD Address: {tunnel_result.address}')
-            logger.info(f'RSD Port: {tunnel_result.port}')
-            
-            global rsd_port
-            global rsd_host
-            rsd_host = tunnel_result.address
-            rsd_port = str(tunnel_result.port)
+            stop_remoted_if_required()
+            lockdown = await create_using_usbmux(udid)
+            service = await CoreDeviceTunnelProxy.create(lockdown)
 
-            while not terminate_tunnel_thread:
-                await asyncio.sleep(.5)
+            async with service.start_tcp_tunnel() as tunnel_result:
+                resume_remoted_if_required()
+                logger.info(f'RSD Address: {tunnel_result.address}')
+                logger.info(f'RSD Port: {tunnel_result.port}')
                 
-    except Exception as e:
-        logger.error(f"Error in run_wifi_tunnel: {e}")
+                rsd_host = tunnel_result.address
+                rsd_port = str(tunnel_result.port)
+
+                if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                    rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = False
+                retry_count = 0
+
+                while not terminate_tunnel_thread:
+                    await asyncio.sleep(.5)
+                return
+
+        except Exception as e:
+            retry_count += 1
+            logger.error(f"Wifi TCP Tunnel Error (Attempt {retry_count}/{max_retries}): {e}")
+            rsd_host = None
+            rsd_port = None
+            
+            if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = True
+            
+            if retry_count >= max_retries:
+                logger.error("Max retries reached for Wifi TCP tunnel. Giving up.")
+                if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                    rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = False
+                return
+            
+            await asyncio.sleep(2)
 
 async def start_wifi_quic_tunnel() -> None:
-
     logger.warning(f"Start Wifi QUIC Tunnel")
+    global terminate_tunnel_thread, rsd_port, rsd_host
 
-    global terminate_tunnel_thread
-    stop_remoted_if_required()
-    #install_driver_if_required()
+    # Capture current device context to handle retries correctly
+    curr_udid = udid
+    curr_conn_type = connection_type
 
-    # if sys.platform == 'win32':
-    #     if is_driver_required:
-    #         logger.warning("Installing WeTest Driver")
-    #         cli_install_wetest_drivers()
-    #get_wifi_with_retry()
-    service = await create_core_device_tunnel_service_using_remotepairing(udid, wifi_address, wifi_port)
-    # lockdown = create_using_usbmux(udid)
-    # service = CoreDeviceTunnelProxy(lockdown)
+    max_retries = 10
+    retry_count = 0
 
-    async with service.start_quic_tunnel() as tunnel_result:
-        resume_remoted_if_required()
-
-        logger.info(f'Identifier: {service.remote_identifier}')
-        logger.info(f'Interface: {tunnel_result.interface}')
-        logger.info(f'RSD Address: {tunnel_result.address}')
-        logger.info(f'RSD Port: {tunnel_result.port}')
-        global rsd_port
-        global rsd_host
-        rsd_host = tunnel_result.address
-
-        rsd_port = str(tunnel_result.port)
-
-
-        while True:
-            if terminate_tunnel_thread is True:
+    while retry_count < max_retries:
+        try:
+            if terminate_tunnel_thread:
                 return
-            # wait user input while the asyncio tasks execute
-            await asyncio.sleep(.5)
+
+            stop_remoted_if_required()
+            service = await create_core_device_tunnel_service_using_remotepairing(udid, wifi_address, wifi_port)
+
+            async with service.start_quic_tunnel() as tunnel_result:
+                resume_remoted_if_required()
+                logger.info(f'RSD Address: {tunnel_result.address}')
+                logger.info(f'RSD Port: {tunnel_result.port}')
+                
+                rsd_host = tunnel_result.address
+                rsd_port = str(tunnel_result.port)
+
+                if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                    rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = False
+                retry_count = 0
+
+                while not terminate_tunnel_thread:
+                    await asyncio.sleep(.5)
+                return
+
+        except Exception as e:
+            retry_count += 1
+            logger.error(f"Wifi QUIC Tunnel Error (Attempt {retry_count}/{max_retries}): {e}")
+            rsd_host = None
+            rsd_port = None
+            
+            if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = True
+            
+            if retry_count >= max_retries:
+                logger.error("Max retries reached for Wifi QUIC tunnel. Giving up.")
+                if curr_udid in rsd_data_map and curr_conn_type in rsd_data_map[curr_udid]:
+                    rsd_data_map[curr_udid][curr_conn_type]['is_reconnecting'] = False
+                return
+            
+            await asyncio.sleep(2)
 
 # Define a function to start the tunnel thread
 def start_wifi_tunnel_thread():
@@ -1011,11 +1202,11 @@ async def device_location_loop(udid, conn_type, device_info):
                                         latitude, longitude = location.split()
                                         await simulation.set(float(latitude), float(longitude))
                                         last_sent_location = location
-                                        logger.debug(f"[{udid}] Location updated to {location}")
+                                        logger.info(f"[{udid}] Location successfully pushed to device: {location}")
                                     except Exception as e:
                                         logger.error(f"[{udid}] Inner simulation loop error: {e}")
                                         break
-                                await asyncio.sleep(0.1)
+                                await asyncio.sleep(0.5) # Slight increase in sleep to prevent buffer bloat
                 except Exception as e:
                     logger.error(f"[{udid}] Outer simulation service error: {e}. Retrying in 1s...")
                     await asyncio.sleep(1.0)
@@ -1060,23 +1251,54 @@ async def device_location_loop(udid, conn_type, device_info):
 
 async def set_location_thread():
     global terminate_location_thread, location, rsd_data_map
-    
+    active_tasks = {} # (udid, conn_type) -> asyncio.Task
+
     try:
-        tasks = []
-        for udid, connections in rsd_data_map.items():
-            for conn_type, device_info in connections.items():
-                logger.debug(f"Starting location loop for {udid} over {conn_type}")
-                tasks.append(device_location_loop(udid, conn_type, device_info))
-                
-        if tasks:
-            await asyncio.gather(*tasks)
-        else:
-            logger.warning("No devices in rsd_data_map to set location.")
+        while not terminate_location_thread:
+            # Check for new devices and start tasks
+            for udid, connections in rsd_data_map.items():
+                for conn_type, device_info in connections.items():
+                    key = (udid, conn_type)
+                    # If task is not running or finished, start it
+                    if key not in active_tasks or active_tasks[key].done():
+                        # Clear any finished task from dict
+                        if key in active_tasks and active_tasks[key].done():
+                            try:
+                                active_tasks[key].result()
+                            except Exception as e:
+                                logger.error(f"Task for {udid} failed: {e}")
+                        
+                        logger.info(f"Starting simulation task for {udid} - {conn_type}")
+                        active_tasks[key] = asyncio.create_task(device_location_loop(udid, conn_type, device_info))
+
+            # Check for removed devices and cancel tasks
+            keys_to_stop = []
+            for key in active_tasks:
+                udid, conn_type = key
+                if udid not in rsd_data_map or conn_type not in rsd_data_map[udid]:
+                    keys_to_stop.append(key)
+            
+            for key in keys_to_stop:
+                logger.info(f"Stopping simulation task for {key[0]} - {key[1]} (Device disconnected)")
+                active_tasks[key].cancel()
+                del active_tasks[key]
+
+            # If no devices are connected at all, we can exit the manager thread
+            if not active_tasks and not rsd_data_map:
+                logger.info("No active devices, simulation manager exiting.")
+                break
+
+            await asyncio.sleep(1)
             
     except asyncio.CancelledError:
         pass
     except Exception as e:
-        logger.error(f"Error setting location: {e}")
+        logger.error(f"Error in simulation manager: {e}")
+    finally:
+        # Cleanup all tasks
+        for task in active_tasks.values():
+            task.cancel()
+        logger.info("Simulation manager thread stopped.")
 
 
 # Variables to track the location thread
@@ -1086,8 +1308,10 @@ location_thread_instance = None
 def start_set_location_thread():
     global terminate_location_thread, location_thread_instance
     
-    # If a thread is already running and not terminated, just return
+    # If the thread is already alive and not terminated, just return.
+    # The manager thread will pick up any new devices in its next loop.
     if location_thread_instance and location_thread_instance.is_alive() and not terminate_location_thread:
+        logger.debug("Simulation manager is already running, new devices will be picked up automatically.")
         return
 
     # Reset the terminate flag before starting the thread
@@ -1100,7 +1324,7 @@ def start_set_location_thread():
     # Create a new thread and start it
     location_thread_instance = threading.Thread(target=lambda: asyncio.run(run_async_function()))
     location_thread_instance.start()
-    logger.info("Persistent Location Thread Started")
+    logger.info("Simulation Manager Thread Started")
 
 
 # Function to stop the location thread
@@ -1130,13 +1354,15 @@ def set_location():
             if not location:
                 return jsonify({'error': 'No location set'}), 400
             start_set_location_thread()
-            return 'Location set successfully'
+            time.sleep(0.5)
+            return 'Location set command sent to device'
 
         elif ios_version is not None and not is_major_version_17_or_greater(ios_version):
             if not location:
                 return jsonify({'error': 'No location set'}), 400
             mount_developer_image()
             start_set_location_thread()
+            time.sleep(0.5)
             return 'Location set successfully'
 
         else:
@@ -1317,15 +1543,19 @@ def py_list_devices():
 def clear_geoport():
     logger.info("clear any GeoPort instances")
     substring = "GeoPort"
+    current_pid = os.getpid()
 
     for process in psutil.process_iter(['pid', 'name']):
-        if substring in process.info['name']:
-            logger.info(f"Found process: {process.info['pid']} - {process.info['name']}")
+        try:
+            if substring in process.info['name'] and process.info['pid'] != current_pid:
+                logger.info(f"Found process: {process.info['pid']} - {process.info['name']}")
 
-            # Terminate the process
-            process.terminate()
+                # Terminate the process
+                process.terminate()
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
     else:
-        logger.warning("No GeoPort found")
+        logger.warning("No other Geo found")
 
 
 def clear_old_geoport():
@@ -1343,22 +1573,41 @@ def clear_old_geoport():
 
 
 def shutdown_server():
-    logger.warning("shutdown server")
-    asyncio.run(stop_location())
-    stop_set_location_thread()
-    stop_tunnel_thread()
-    cancel_async_tasks()
-    terminate_threads()
+    logger.warning("Shutdown server initiated")
+    
+    # 1. Stop all loops immediately and prevent auto-reconnect
+    global terminate_tunnel_thread, terminate_location_thread, rsd_data_map
+    terminate_tunnel_thread = True
+    terminate_location_thread = True
+    
+    # Ensure no device thinks it is reconnecting
+    for udid in rsd_data_map:
+        for conn_type in rsd_data_map[udid]:
+            if isinstance(rsd_data_map[udid][conn_type], dict):
+                rsd_data_map[udid][conn_type]['is_reconnecting'] = False
 
+    # 2. Try to clear location simulation on devices with a timeout
+    try:
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
-    # Terminate the current process
-    clear_geoport()
+        if loop.is_running():
+            logger.warning("Event loop is already running, skipping stop_location cleanup")
+        else:
+            loop.run_until_complete(asyncio.wait_for(stop_location(), timeout=2.0))
+    except Exception as e:
+        logger.error(f"Cleanup error or timeout: {e}")
 
-    logger.error("OS Kill")
-    os.kill(os.getpid(), signal.SIGINT)
-    list_threads()
-    terminate_threads()
-    logger.error("sys exit")
+    # 3. Fast local cleanup
+    try:
+        clear_old_geoport()
+    except Exception as e:
+        logger.error(f"Error during old process cleanup: {e}")
+
+    logger.info("Exiting GeoPort. Goodbye!")
     os._exit(0)
 
 
@@ -1404,6 +1653,16 @@ def exit_app():
     return jsonify(response)
 
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(base_directory, 'app_icon.ico')
+
+
+@app.route('/picture/<path:filename>')
+def serve_picture(filename):
+    return send_from_directory(os.path.join(base_directory, 'picture'), filename)
+
+
 @app.route('/')
 def index():
     # global error_message
@@ -1426,13 +1685,11 @@ def open_browser():
 
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(('localhost', port)) == 0
-    # with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    #     try:
-    #         s.bind((' ', port))
-    #         return False  # Port is available
-    #     except OSError:
-    #         return True  # Port is already in use
+        try:
+            s.bind(('0.0.0.0', port))
+            return False  # Port is available
+        except OSError:
+            return True  # Port is already in use
 
 
 def get_local_ip():
@@ -1474,13 +1731,15 @@ if __name__ == '__main__':
     #create_geoport_folder()
     if is_windows:
         try:
-            import pyi_splash
-
-            pyi_splash.update_text('UI Loaded ...')
-            logger.info("clear splash")
-            pyi_splash.close()
-        except:
-            pass
+            # Only attempt to import and close splash if the IPC env var exists
+            import os
+            if '_PYI_SPLASH_IPC' in os.environ:
+                import pyi_splash
+                pyi_splash.update_text('UI Loaded ...')
+                logger.info("Closing splash screen")
+                pyi_splash.close()
+        except Exception as e:
+            logger.debug(f"Splash screen check skipped or failed: {e}")
         if not pyuac.isUserAdmin():
             print("Relaunching as Admin")
             pyuac.runAsAdmin()
@@ -1493,14 +1752,10 @@ if __name__ == '__main__':
 
     # Check if --no-browser flag is provided
     if not args.no_browser:
-        open_browser()
+        threading.Thread(target=open_browser, daemon=True).start()
     else:
         logger.info("--no-browser flag passed")
         logger.info("Running without auto-browser popup")
-
-
-
-    #threading.Thread(target=open_browser).start()
 
     app.run(debug=True, use_reloader=False, port=chosen_port, host='0.0.0.0')
 

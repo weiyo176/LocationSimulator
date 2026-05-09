@@ -193,6 +193,8 @@ var marker; // Variable to store the marker
 var drawnItems = new L.FeatureGroup(); // Define the layer to add loaded files
 var gpxArray = []; // Array to store feature data
 var orangeIcon;
+var blueDotIcon;
+
 // Define arrays to store latitudes and longitudes for markers and lines
 var markerLatLngs = [];
 var lineLatLngs = [];
@@ -204,6 +206,7 @@ var gpxPlaybackInterval;
 let isPlaybackInProgress = false;
 let isPlaybackStopped = true; // Flag to control playback status
 let playbackIndex = 0; // Index to keep track of the current point being processed
+let isReconnecting = false; // Tracking global reconnection state
 // Define the gpxMarker outside the function scope
 let gpxMarker = null;
 // Define a flag to track if playback was paused
@@ -215,6 +218,64 @@ var timeToNextPoint = 'N/A';
 var velocitySelect = 'walk';
 let isDrawingMode = false; // Flag to track auto-drawing (snapping) mode
 let isManualDrawingMode = false; // Flag to track manual-drawing mode
+let isFlowerPlacementMode = false; // Flag for Pikmin Big Flower mode
+let manualDrawingPoints = []; // NEW: Buffer for current manual drawings (green path)
+let ignoreDayCrossingWarning = false;
+let lastConfirmedLatLng = null;
+let pendingSyncCoords = null; 
+
+// Playback Control Variables (Global Scope)
+let activePlaybackSource = 'none'; // 'drawing' or 'saved'
+let drawingPlaybackButton, savedPlaybackButton;
+let currentPlaybackSessionId = 0; // NEW: Unique ID to prevent multiple loops
+let teleportEnabled = false;
+let teleportInterval = 5;
+let teleportWaitTime = 0;
+
+function toggleTeleport() {
+    teleportEnabled = document.getElementById('teleportEnabled').checked;
+    const config = document.getElementById('teleportConfig');
+    if (config) {
+        config.style.display = teleportEnabled ? 'flex' : 'none';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const intervalInput = document.getElementById('teleportInterval');
+    if (intervalInput) {
+        intervalInput.addEventListener('change', (e) => {
+            teleportInterval = parseInt(e.target.value) || 5;
+            if (teleportInterval < 1) teleportInterval = 1;
+        });
+    }
+    const waitTimeInput = document.getElementById('teleportWaitTime');
+    if (waitTimeInput) {
+        waitTimeInput.addEventListener('change', (e) => {
+            teleportWaitTime = parseFloat(e.target.value) || 0;
+            if (teleportWaitTime < 0) teleportWaitTime = 0;
+        });
+    }
+});
+
+function updatePlaybackButtonStates(state) {
+    if (activePlaybackSource === 'drawing' && drawingPlaybackButton) {
+        drawingPlaybackButton.state(state);
+        if (savedPlaybackButton) savedPlaybackButton.state('play');
+    } else if (activePlaybackSource === 'saved' && savedPlaybackButton) {
+        savedPlaybackButton.state(state);
+        if (drawingPlaybackButton) drawingPlaybackButton.state('play');
+    } else {
+        if (drawingPlaybackButton) drawingPlaybackButton.state('play');
+        if (savedPlaybackButton) savedPlaybackButton.state('play');
+    }
+}
+
+// Flower Storage
+let flowerLayerGroup = new L.FeatureGroup();
+let flowerIcon;
+let flowerButton; // Global reference for the placement button
+let currentEditingIsNew = false; // Track if the modal is for a fresh placement
+
 
 // Virtual Joystick Variables
 let joystick = null;
@@ -238,7 +299,8 @@ async function initializeMap(userLocale) {
     // Create the map instance after obtaining coordinates
     map = L.map('map', {
         keyboard: false, // Disable keyboard navigation
-        zoomControl: false // Disable default zoom
+        zoomControl: false, // Disable default zoom
+        worldCopyJump: true // Automatically jump back to the center world when panning
     });
     // Re-add zoom control to the top left
     L.control.zoom({ position: 'topleft' }).addTo(map);
@@ -321,10 +383,34 @@ async function initializeMap(userLocale) {
         maxZoom: 20
     });
 
+    // Define the orange icon
+    orangeIcon = L.divIcon({
+        className: 'orange-dot-container',
+        html: '<div class="orange-dot"></div>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+    });
+
+    // Define the Google Maps style blue dot icon
+    blueDotIcon = L.divIcon({
+        className: 'blue-dot-container',
+        html: '<div class="blue-dot"></div>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+    });
+
+    // Define the Pikmin Big Flower icon
+    flowerIcon = L.icon({
+        iconUrl: '/picture/leaf_icon.png',
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
+    });
+
+    // Add flower layer group to map
+    flowerLayerGroup.addTo(map);
+
     const initialLat = 23.97565;
     const initialLng = 120.9738819;
-    // const initialLat = 23.10416999628627;
-    // const initialLng = 120.35137049956495;
 
     // Center map and set zoom
     map.setView([initialLat, initialLng], 15);
@@ -332,24 +418,32 @@ async function initializeMap(userLocale) {
     // Create initial marker
     marker = createMarker([initialLat, initialLng]);
     setCoordinatesUI(initialLat, initialLng);
+    updateAddressInfo(initialLat, initialLng); // Initial address load
+
 
     map.on('dblclick', handleMapDoubleClick);
     map.on('click', (e) => {
+        const latlng = e.latlng.wrap(); // Normalize coordinates for mirrored worlds
+        if (isFlowerPlacementMode) {
+            addBigFlower(latlng.lat, latlng.lng, true, null, null, null, true);
+            
+            // Auto-reset mode after placement (single-use action)
+            isFlowerPlacementMode = false;
+            if (flowerButton) {
+                flowerButton.button.innerHTML = '<i class="lni lni-flower"></i>';
+                flowerButton.button.classList.remove('active');
+                map.getContainer().style.cursor = '';
+            }
+            return;
+        }
+
         if (!isDrawingMode && !isManualDrawingMode) {
-            handleMapDoubleClick(e);
+            handleMapDoubleClick({ latlng: latlng });
         }
     });
 
-    // Set the zoom level to 4
+    // Set the zoom level to 20
     map.setZoom(20);
-
-    // // Use Stadia Maps as the tile layer
-    // L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png', {
-    //     maxZoom: 19,
-    //     noWrap: true, // Prevent tiles from wrapping around the world
-    //     attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> contributors'
-    // }).addTo(map);
-
 
     // Add default tile layer
     stadiaTileLayer.addTo(map);
@@ -381,20 +475,10 @@ async function initializeMap(userLocale) {
     // Add layer control to map
     L.control.layers(baseLayers).addTo(map);
 
-
-
     //-----------------
     // Leaflet.FileLayer
     // Load GPX/KML/GeoJSON files by drag and drop, or file open
     var style = { color: 'orange', opacity: 1.0, fillOpacity: 0.1, weight: 2, clickable: true };
-
-    // Define the orange icon
-    orangeIcon = L.icon({
-        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
-        iconSize: [25, 41],
-        iconAnchor: [12, 41],
-        popupAnchor: [1, -34],
-    });
 
     L.Control.FileLayerLoad.LABEL = '<i class="lni lni-cloud-upload"></i>';
     L.Control.fileLayerLoad({
@@ -527,71 +611,166 @@ async function initializeMap(userLocale) {
 
 
     //========== Pause / Play
-    // Create the combined playback button using EasyButton
-    var playbackButton = L.easyButton({
+    //========== Dual Playback Buttons (Green for Drawing, Blue for Saved)
+    
+    // Green Playback Button (for manual drawings)
+    drawingPlaybackButton = L.easyButton({
         states: [{
             stateName: 'play',
-            icon: '<i class="lni lni-play"></i>', // Icon class for play state
-            title: 'GPX Playback', // Tooltip for the button
+            icon: '<i class="lni lni-play"></i>',
+            title: 'Play Drawing (Green)',
             onClick: function (btn, map) {
-                // Start GPX playback
-                console.log("play click");
-                console.log("isPlaybackStopped: ", isPlaybackStopped);
-                if (!isPlaybackStopped) {
-                    console.log("play if");
-                    return; // Prevent multiple playbacks
-                }
+                if (manualDrawingPoints && manualDrawingPoints.length >= 2) {
+                    const isSwitching = (activePlaybackSource !== 'drawing');
+                    
+                    // If we are currently playing something else, we need to interrupt it
+                    if (!isPlaybackStopped && isSwitching) {
+                        isPlaybackStopped = true; // Stop current loop
+                        wasPlaybackPaused = false; // Fresh start for the new source
+                    }
 
-                isPlaybackStopped = false; // Set playback status to active
-                console.log("before playback");
-
-                // If playback was paused, resume from the current position
-                if (wasPlaybackPaused) {
-                    processNextPoint();
+                    // Reset progress if we are switching sources
+                    if (isSwitching) {
+                        playbackIndex = 0;
+                        interpolationStep = 0;
+                        currentSegmentPoints = [];
+                        wasPlaybackPaused = false;
+                    }
+                    
+                    // Only initialize data if NOT resuming from a pause
+                    if (!wasPlaybackPaused) {
+                        lineLatLngs = JSON.parse(JSON.stringify(manualDrawingPoints));
+                        playbackIndex = 0;
+                        interpolationStep = 0;
+                        currentSegmentPoints = [];
+                    }
+                    
+                    activePlaybackSource = 'drawing';
                 } else {
-                    playbackIndex = 0; // Reset playback index
-                    processNextPoint(); // Start processing points from the beginning
+                    displayToast("No manual drawing to play. Use the pen tools first.");
+                    return;
                 }
 
-                // Change button state to pause
-                btn.state('pause');
+                if (!isPlaybackStopped && activePlaybackSource === 'drawing') return;
+                
+                isPlaybackStopped = false;
+                currentPlaybackSessionId++; // New valid session ID
+                
+                if (wasPlaybackPaused) {
+                    processNextPoint(currentPlaybackSessionId);
+                } else {
+                    playbackIndex = 0;
+                    processNextPoint(currentPlaybackSessionId);
+                }
+                updatePlaybackButtonStates('pause');
             }
         }, {
             stateName: 'pause',
-            icon: '<i class="lni lni-pause"></i>', // Icon class for pause state
-            title: 'Pause GPX Playback', // Tooltip for the button
+            icon: '<i class="lni lni-pause"></i>',
+            title: 'Pause Drawing',
             onClick: function (btn, map) {
-                // Pause GPX playback
-                isPlaybackStopped = !isPlaybackStopped; // Toggle playback status
+                isPlaybackStopped = !isPlaybackStopped;
                 if (isPlaybackStopped) {
-                    console.log('Playback paused');
-                    wasPlaybackPaused = true; // Set flag indicating playback was paused
+                    wasPlaybackPaused = true;
+                    updatePlaybackButtonStates('play');
                 } else {
-                    console.log('Playback resumed');
-                    wasPlaybackPaused = false; // Reset flag indicating playback was not paused
-                    processNextPoint(); // Resume processing if playback is resumed
+                    wasPlaybackPaused = false;
+                    currentPlaybackSessionId++; // New ID for resumed session
+                    processNextPoint(currentPlaybackSessionId);
+                    updatePlaybackButtonStates('pause');
                 }
-
-                // Change button state back to play
-                btn.state('play');
             }
         }]
     });
 
-    playbackButton.button.style.fontSize = '24px'; // Adjust the font size as needed
-    playbackButton.button.style.paddingLeft = '4px';
+    // Blue Playback Button (for saved paths)
+    savedPlaybackButton = L.easyButton({
+        states: [{
+            stateName: 'play',
+            icon: '<i class="lni lni-play"></i>',
+            title: 'Play Saved Path (Blue)',
+            onClick: function (btn, map) {
+                const path = pathData.find(p => p.id === activePathId);
+                
+                if (path && path.points && path.points.length >= 2) {
+                    const isSwitching = (activePlaybackSource !== 'saved');
 
-    // Add the combined playback button to the map
-    playbackButton.addTo(map);
+                    // If we are currently playing something else, we need to interrupt it
+                    if (!isPlaybackStopped && isSwitching) {
+                        isPlaybackStopped = true; // Stop current loop
+                        wasPlaybackPaused = false; // Fresh start for the new source
+                    }
 
-    // Get the container of your existing Leaflet control
+                    // If switching sources, force a full reset
+                    if (isSwitching) {
+                        playbackIndex = 0;
+                        interpolationStep = 0;
+                        currentSegmentPoints = [];
+                        wasPlaybackPaused = false;
+                    }
+
+                    // Only load data if NOT resuming from a pause
+                    if (!wasPlaybackPaused) {
+                        lineLatLngs = JSON.parse(JSON.stringify(path.points));
+                        playbackIndex = 0;
+                        interpolationStep = 0;
+                        currentSegmentPoints = [];
+                    }
+                    
+                    activePlaybackSource = 'saved';
+                } else {
+                    displayToast("Please select a path from the sidebar first (item should turn blue).");
+                    return;
+                }
+
+                // If it's already playing the current source, ignore additional clicks
+                if (!isPlaybackStopped && activePlaybackSource === 'saved') return;
+                
+                isPlaybackStopped = false;
+                currentPlaybackSessionId++; // New valid session ID
+
+                if (wasPlaybackPaused) {
+                    processNextPoint(currentPlaybackSessionId);
+                } else {
+                    playbackIndex = 0;
+                    processNextPoint(currentPlaybackSessionId);
+                }
+                updatePlaybackButtonStates('pause');
+            }
+        }, {
+            stateName: 'pause',
+            icon: '<i class="lni lni-pause"></i>',
+            title: 'Pause Saved Path',
+            onClick: function (btn, map) {
+                isPlaybackStopped = !isPlaybackStopped;
+                if (isPlaybackStopped) {
+                    wasPlaybackPaused = true;
+                    updatePlaybackButtonStates('play');
+                } else {
+                    wasPlaybackPaused = false;
+                    currentPlaybackSessionId++; // New ID for resumed session
+                    processNextPoint(currentPlaybackSessionId);
+                    updatePlaybackButtonStates('pause');
+                }
+            }
+        }]
+    });
+
+    // Style the buttons using specific classes for color priority
+    drawingPlaybackButton.button.classList.add('btn-playback-green');
+    savedPlaybackButton.button.classList.add('btn-playback-blue');
+
+    drawingPlaybackButton.addTo(map);
+    savedPlaybackButton.addTo(map);
+
+    // Add to the control container
     var fileLayerControlContainer = document.querySelector('.leaflet-control-filelayer');
-
-    // Add the EasyButton's container element to the existing control container
-    fileLayerControlContainer.appendChild(playbackButton.button);
-
-    // Add the custom class to the EasyButton's container element
-    playbackButton.button.classList.add('leaflet-control-filelayer-custom');
+    if (fileLayerControlContainer) {
+        fileLayerControlContainer.appendChild(drawingPlaybackButton.button);
+        drawingPlaybackButton.button.classList.add('leaflet-control-filelayer-custom');
+        fileLayerControlContainer.appendChild(savedPlaybackButton.button);
+        savedPlaybackButton.button.classList.add('leaflet-control-filelayer-custom');
+    }
 
 
 
@@ -638,6 +817,38 @@ async function initializeMap(userLocale) {
 
     //===========
 
+    // Create the flower placement button using EasyButton
+    flowerButton = L.easyButton({
+        states: [{
+            stateName: 'place-flower',
+            icon: '<i class="lni lni-flower"></i>',
+            title: 'Place Big Flower',
+            onClick: function (btn, map) {
+                isFlowerPlacementMode = !isFlowerPlacementMode;
+
+                if (isFlowerPlacementMode) {
+                    btn.button.innerHTML = '<i class="lni lni-checkmark"></i>';
+                    btn.button.classList.add('active');
+                    map.getContainer().style.cursor = 'crosshair';
+                } else {
+                    btn.button.innerHTML = '<i class="lni lni-flower"></i>';
+                    btn.button.classList.remove('active');
+                    map.getContainer().style.cursor = '';
+                }
+            }
+        }]
+    });
+
+    flowerButton.button.style.fontSize = '24px';
+    flowerButton.button.style.paddingLeft = '4px';
+    flowerButton.addTo(map);
+
+    if (fileLayerControlContainer) {
+        fileLayerControlContainer.appendChild(flowerButton.button);
+        flowerButton.button.classList.add('leaflet-control-filelayer-custom');
+    }
+
+    //===========
     //=========================== Speed Select Control ====================
     L.Control.SpeedSelect = L.Control.extend({
         options: { position: 'topleft' },
@@ -670,6 +881,7 @@ async function initializeMap(userLocale) {
                 { value: 'walk', text: '6 km/h' },
                 { value: 'run', text: '12 km/h' },
                 { value: 'ride', text: '19 km/h' },
+                { value: 'ride2', text: '20 km/h' },
                 { value: 'drive', text: '50 km/h' },
                 { value: 'fly', text: '450 km/h' },
                 { value: 'custom', text: '...' }
@@ -706,7 +918,7 @@ async function initializeMap(userLocale) {
             L.DomEvent.on(select, 'change', function() {
                 if (select.value === 'custom') {
                     customInputContainer.style.display = 'block';
-                    if (!['walk','run','ride','drive','fly'].includes(velocitySelect)) {
+                    if (!['walk','run','ride','ride2','drive','fly'].includes(velocitySelect)) {
                         customInput.value = velocitySelect;
                     } else {
                         customInput.value = '';
@@ -759,16 +971,21 @@ async function initializeMap(userLocale) {
                 // Logic to clear the layers and reset values
                 drawnItems.clearLayers(); // Clear layers from map
                 lineLatLngs = []; // Clear array storing coordinates
+                manualDrawingPoints = []; // Also clear current drawing
+                activePathId = null; // Reset active path selection
+                activePlaybackSource = 'none'; // Reset playback buttons
+                
                 isPlaybackStopped = true; // Stop playback if active
                 playbackIndex = 0;
                 interpolationStep = 0; // Reset interpolation
                 currentSegmentPoints = []; // Reset sub-points
                 gpxMarker = null; // Clear marker reference
                 wasPlaybackPaused = false;
-                if (typeof playbackButton !== 'undefined') {
-                    playbackButton.state('play'); // Reset the playback button state
-                }
+                updatePlaybackButtonStates('play');
                 
+                // Refresh map to remove blue lines and un-highlight sidebar
+                applyPathVisibility();
+
                 // Stop background timer just in case
                 if (typeof timerWorker !== 'undefined') {
                     timerWorker.postMessage({ action: 'stop' });
@@ -807,14 +1024,15 @@ async function initializeMap(userLocale) {
     // Function to handle map click for drawing polyline (Auto Snapping)
     function handleMapClick(event) {
         if (!isDrawingMode) return; // Exit if not in drawing mode
-        const { lat, lng } = event.latlng; // Get latitude and longitude
-        lineLatLngs.push([lat, lng]); // Add coordinates to polyline array
+        const latlng = event.latlng.wrap(); // Normalize coordinates
+        const { lat, lng } = latlng; 
+        manualDrawingPoints.push([lat, lng]); // Add coordinates to manual drawing buffer
 
         // If there are at least two points, calculate route between them
-        if (lineLatLngs.length >= 2) {
-            const lastPoint = lineLatLngs.length - 2;
-            const startPoint = lineLatLngs[lastPoint];
-            const endPoint = lineLatLngs[lastPoint + 1];
+        if (manualDrawingPoints.length >= 2) {
+            const lastPoint = manualDrawingPoints.length - 2;
+            const startPoint = manualDrawingPoints[lastPoint];
+            const endPoint = manualDrawingPoints[lastPoint + 1];
 
             // Request route between consecutive points
             calculateRoute(startPoint, endPoint);
@@ -824,13 +1042,14 @@ async function initializeMap(userLocale) {
     // Function to handle map click for manual drawing (No Snapping)
     function handleManualMapClick(event) {
         if (!isManualDrawingMode) return;
-        const { lat, lng } = event.latlng;
-        lineLatLngs.push([lat, lng]);
+        const latlng = event.latlng.wrap(); // Normalize coordinates
+        const { lat, lng } = latlng;
+        manualDrawingPoints.push([lat, lng]);
 
-        if (lineLatLngs.length >= 2) {
-            const lastPointIdx = lineLatLngs.length - 2;
-            const startPoint = lineLatLngs[lastPointIdx];
-            const endPoint = lineLatLngs[lastPointIdx + 1];
+        if (manualDrawingPoints.length >= 2) {
+            const lastPointIdx = manualDrawingPoints.length - 2;
+            const startPoint = manualDrawingPoints[lastPointIdx];
+            const endPoint = manualDrawingPoints[lastPointIdx + 1];
 
             // Draw a simple polyline directly between points
             L.polyline([startPoint, endPoint], { color: 'green', weight: 5 }).addTo(drawnItems);
@@ -854,9 +1073,12 @@ async function initializeMap(userLocale) {
         let timer = null;
         self.onmessage = function(e) {
             if (e.data.action === 'start') {
-                timer = setTimeout(() => self.postMessage('tick'), e.data.interval);
+                if (timer) clearTimeout(timer);
+                timer = setTimeout(() => {
+                    self.postMessage({ type: 'tick', sessionId: e.data.sessionId });
+                }, e.data.interval);
             } else if (e.data.action === 'stop') {
-                clearTimeout(timer);
+                if (timer) clearTimeout(timer);
             }
         };
     `;
@@ -864,13 +1086,15 @@ async function initializeMap(userLocale) {
     const timerWorker = new Worker(URL.createObjectURL(timerBlob));
     
     timerWorker.onmessage = function(e) {
-        if (e.data === 'tick') {
-            processNextPoint();
+        if (e.data.type === 'tick') {
+            processNextPoint(e.data.sessionId);
         }
     };
 
-    function processNextPoint() {
-        if (isPlaybackStopped) return;
+    function processNextPoint(sessionId) {
+        if (isPlaybackStopped || sessionId !== currentPlaybackSessionId) return;
+
+        let nextInterval = INTERPOLATION_INTERVAL;
 
         // If we finished the current segment or just started
         if (interpolationStep >= currentSegmentPoints.length) {
@@ -889,7 +1113,7 @@ async function initializeMap(userLocale) {
                 playbackIndex = 0;
                 interpolationStep = 0;
                 wasPlaybackPaused = false;
-                playbackButton.state('play'); // Change button state without triggering onClick
+                updatePlaybackButtonStates('play'); 
                 return;
             }
 
@@ -897,17 +1121,27 @@ async function initializeMap(userLocale) {
             const start = lineLatLngs[playbackIndex];
             const end = lineLatLngs[playbackIndex + 1];
             const distance = calculateDistance(start[0], start[1], end[0], end[1]);
-            const speedKmh = (velocitySelect === 'walk' ? 6 : (velocitySelect === 'run' ? 12 : (velocitySelect === 'ride' ? 19 : (velocitySelect === 'drive' ? 50 : (velocitySelect === 'fly' ? 450 : parseFloat(velocitySelect) || 18)))));
-            const totalTimeSec = (distance / speedKmh) * 3600;
-            const numSteps = Math.max(1, Math.ceil(totalTimeSec * 1000 / INTERPOLATION_INTERVAL));
-
             currentSegmentPoints = [];
-            for (let i = 1; i <= numSteps; i++) {
-                const ratio = i / numSteps;
-                currentSegmentPoints.push([
-                    start[0] + (end[0] - start[0]) * ratio,
-                    start[1] + (end[1] - start[1]) * ratio
-                ]);
+            
+            // Check for Teleport Mode
+            if (teleportEnabled && (playbackIndex + 1) % teleportInterval === 0) {
+                // Teleport segment: Only 1 step straight to the end
+                currentSegmentPoints.push([end[0], end[1]]);
+                // Use wait time for the next tick after this teleport point is processed
+                nextInterval = Math.max(INTERPOLATION_INTERVAL, teleportWaitTime * 1000);
+            } else {
+                // Normal interpolation logic
+                const speedKmh = (velocitySelect === 'walk' ? 6 : (velocitySelect === 'run' ? 12 : (velocitySelect === 'ride' ? 19 : (velocitySelect === 'ride2' ? 20 : (velocitySelect === 'drive' ? 50 : (velocitySelect === 'fly' ? 450 : parseFloat(velocitySelect) || 18))))));
+                const totalTimeSec = (distance / speedKmh) * 3600;
+                const numSteps = Math.max(1, Math.ceil(totalTimeSec * 1000 / INTERPOLATION_INTERVAL));
+
+                for (let i = 1; i <= numSteps; i++) {
+                    const ratio = i / numSteps;
+                    currentSegmentPoints.push([
+                        start[0] + (end[0] - start[0]) * ratio,
+                        start[1] + (end[1] - start[1]) * ratio
+                    ]);
+                }
             }
 
             interpolationStep = 0;
@@ -925,11 +1159,16 @@ async function initializeMap(userLocale) {
             gpxMarker.setLatLng([lat, lng]);
         }
 
+        // Move the main blue dot as well
+        if (marker) {
+            marker.setLatLng([lat, lng]);
+        }
+        
         syncLocation(lat, lng);
-        map.panTo([lat, lng]); // Auto-pan to follow
+        // map.panTo([lat, lng]); // Auto-pan disabled per user request
 
         // Schedule next sub-step using Web Worker to prevent background throttling
-        timerWorker.postMessage({ action: 'start', interval: INTERPOLATION_INTERVAL });
+        timerWorker.postMessage({ action: 'start', interval: nextInterval, sessionId: sessionId });
     }
 
     function calculateRoute(startPoint, endPoint) {
@@ -1055,7 +1294,11 @@ async function initializeMap(userLocale) {
 
 // Function to create a marker with all necessary event listeners
 function createMarker(latlng) {
-    marker = L.marker(latlng, { draggable: true }).addTo(map);
+    marker = L.marker(latlng, { 
+        draggable: true,
+        icon: blueDotIcon 
+    }).addTo(map);
+
     marker.on('dragend', handleMarkerDragEnd);
     marker.on('contextmenu', handleMarkerRightClick); // Add event listener for marker right-click
     return marker;
@@ -1066,12 +1309,13 @@ function createMarker(latlng) {
 function handleMapDoubleClick(e) {
     // Disable double-click zooming
     map.doubleClickZoom.disable();
+    const latlng = e.latlng.wrap(); // Normalize coordinates
     if (!marker)
-        marker = createMarker(e.latlng); // Create a new marker
+        marker = createMarker(latlng); // Create a new marker
     else
-        marker.setLatLng(e.latlng);
+        marker.setLatLng(latlng);
 
-    syncLocation(e.latlng.lat, e.latlng.lng);
+    syncLocation(latlng.lat, latlng.lng, true);
 
     // Add the right-click event listener to the active marker
     marker.on('contextmenu', handleActiveMarkerRightClick);
@@ -1081,7 +1325,7 @@ function handleMapDoubleClick(e) {
 function handleMarkerDragEnd(event) {
     const newLat = event.target.getLatLng().lat;
     const newLng = event.target.getLatLng().lng;
-    syncLocation(newLat, newLng);
+    syncLocation(newLat, newLng, true);
 }
 
 
@@ -1106,13 +1350,43 @@ function setCoordinatesUI(lat, lng) {
     document.getElementById('coordinates').value = lat + ', ' + lng;
     updateSetLocationButtonStatus();
     updateStopLocationButtonStatus();
+    if (typeof updateAddressInfo === 'function') updateAddressInfo(lat, lng);
 }
 
-async function syncLocation(lat, lng) {
-    if (isSyncing) return;
-    isSyncing = true;
+let dayCrossingModalInstance = null; // Global for singleton management
 
+async function syncLocation(lat, lng, checkCrossing = false, allowBypass = true) {
+    if (isSyncing) return;
+    
+    // 1. PERFORMANCE BOOST: Skip long checks for local movements (< 50km)
+    // EXCLUSION: If allowBypass is false (e.g., from Search), we always check.
+    if (checkCrossing && !ignoreDayCrossingWarning && lastConfirmedLatLng && allowBypass) {
+        try {
+            const distance = lastConfirmedLatLng.distanceTo(L.latLng(lat, lng));
+            if (distance < 50000) {
+                checkCrossing = false; // Treat as safe, skip API call
+            }
+        } catch (e) {
+            console.warn("Distance check failed", e);
+        }
+    }
+
+    // 2. Intercept for Day Crossing Check (+1 Day only)
+    if (checkCrossing && !ignoreDayCrossingWarning) {
+        const isFuture = await checkIfTomorrow(lat, lng);
+        if (isFuture) {
+            pendingSyncCoords = { lat, lng };
+            if (!dayCrossingModalInstance) {
+                dayCrossingModalInstance = new bootstrap.Modal(document.getElementById('dayCrossingModal'));
+            }
+            dayCrossingModalInstance.show();
+            return; // Pause sync until confirmed
+        }
+    }
+
+    isSyncing = true;
     setCoordinatesUI(lat, lng);
+    
     try {
         const response = await fetch('/set_location', {
             method: 'POST',
@@ -1123,10 +1397,109 @@ async function syncLocation(lat, lng) {
         });
         const data = await response.text();
         console.log('Sync Location Response:', data);
+        
+        // Successfully synced, update the last confirmed position
+        lastConfirmedLatLng = L.latLng(lat, lng);
     } catch (error) {
         console.error('Error syncing location:', error);
     } finally {
         isSyncing = false;
+    }
+}
+
+async function checkIfTomorrow(lat, lng) {
+    // Rely on pre-fetched or fetch new timezone data
+    await updateSimulatedTimeData(lat, lng);
+    
+    // Fallback: If no data at all, return false
+    if (!simulatedTimeData.timeZone && simulatedTimeData.gmtOffset === null) return false; 
+
+    try {
+        const now = new Date();
+        let simDateStr;
+
+        if (simulatedTimeData.timeZone) {
+            // Case A: Precise Timezone (API Success)
+            const options = { timeZone: simulatedTimeData.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' };
+            const simParts = new Intl.DateTimeFormat('en-ZA', options).formatToParts(now);
+            const s = simParts.reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+            simDateStr = `${s.year}-${s.month}-${s.day}`;
+        } else {
+            // Case B: Manual Offset (API Failed, using longitude-based estimate)
+            const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+            const simTime = new Date(utc + (3600000 * simulatedTimeData.gmtOffset));
+            simDateStr = simTime.getFullYear() + '-' + 
+                         String(simTime.getMonth() + 1).padStart(2, '0') + '-' + 
+                         String(simTime.getDate()).padStart(2, '0');
+        }
+
+        // Format system date (local to user) for comparison
+        const sysParts = new Intl.DateTimeFormat('en-ZA', { year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+        const y = sysParts.reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+        const sysDateStr = `${y.year}-${y.month}-${y.day}`;
+
+        if (simDateStr > sysDateStr) {
+            const details = document.getElementById('dayCrossingDetails');
+            if (details) {
+                const label = simulatedTimeData.timeZone ? "" : " (估計值)";
+                details.innerText = `目標日期: ${simDateStr}${label}`;
+            }
+            return true;
+        }
+    } catch (e) {
+        console.error("Date comparison error", e);
+    }
+    return false;
+}
+
+function confirmDayCrossing() {
+    if (document.getElementById('ignoreDayCrossingCheck').checked) {
+        ignoreDayCrossingWarning = true;
+    }
+    
+    if (pendingSyncCoords) {
+        const { lat, lng } = pendingSyncCoords;
+        if (dayCrossingModalInstance) dayCrossingModalInstance.hide();
+        
+        // Perform the sync, skipping the check this time
+        syncLocation(lat, lng, false);
+        pendingSyncCoords = null;
+    }
+}
+
+function stayAtPreview() {
+    if (dayCrossingModalInstance) dayCrossingModalInstance.hide();
+    
+    // Reset marker to safe location but keep map view where it is (the preview)
+    if (lastConfirmedLatLng && marker) {
+        marker.setLatLng(lastConfirmedLatLng);
+        setCoordinatesUI(lastConfirmedLatLng.lat, lastConfirmedLatLng.lng);
+    }
+    
+    pendingSyncCoords = null;
+}
+
+function cancelDayCrossing() {
+    if (dayCrossingModalInstance) dayCrossingModalInstance.hide();
+    
+    if (lastConfirmedLatLng && marker) {
+        marker.setLatLng(lastConfirmedLatLng);
+        setCoordinatesUI(lastConfirmedLatLng.lat, lastConfirmedLatLng.lng);
+        // ROLLBACK: Also move the map view back so the user isn't looking at "tomorrow"
+        map.setView(lastConfirmedLatLng);
+    }
+    pendingSyncCoords = null;
+}
+
+function jumpToCurrentLocation() {
+    if (marker) {
+        map.setView(marker.getLatLng(), map.getZoom());
+        // Simple visual feedback
+        const btnIcon = document.querySelector('.jump-to-marker-btn i');
+        if (btnIcon) {
+            btnIcon.classList.add('fa-beat');
+            setTimeout(() => btnIcon.classList.remove('fa-beat'), 500);
+        }
     }
 }
 
@@ -1138,7 +1511,27 @@ function handleSearch() {
 
 // Function to search location
 async function searchLocation(input, userLocale) {
-    // Initialize the OSM provider for searching
+    // 1. Try to parse as direct coordinates (Lat, Lng)
+    const coordsMatch = input.match(/([-+]?[0-9]*\.?[0-9]+)[\s,]+([-+]?[0-9]*\.?[0-9]+)/);
+    if (coordsMatch) {
+        const lat = parseFloat(coordsMatch[1]);
+        const lng = parseFloat(coordsMatch[2]);
+        
+        if (!isNaN(lat) && !isNaN(lng)) {
+            if (!marker) {
+                marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+                marker.on('dragend', handleMarkerDragEnd);
+                marker.on('contextmenu', handleMarkerRightClick);
+            } else {
+                marker.setLatLng([lat, lng]);
+            }
+            map.setView([lat, lng], 20); // High zoom for coordinate search
+            syncLocation(lat, lng, true, false);
+            return; // Exit early
+        }
+    }
+
+    // 2. Fallback to OpenStreetMap Address Search
     var provider = new GeoSearch.OpenStreetMapProvider();
     try {
         const results = await provider.search({ query: input });
@@ -1146,14 +1539,13 @@ async function searchLocation(input, userLocale) {
             const { x, y } = results[0];
             if (!marker) {
                 marker = L.marker([y, x], { draggable: true }).addTo(map);
-                marker.on('dragend', handleMarkerDragEnd); // Add event listener for marker drag
-                marker.on('contextmenu', handleMarkerRightClick); // Add event listener for marker right-click
-
+                marker.on('dragend', handleMarkerDragEnd);
+                marker.on('contextmenu', handleMarkerRightClick);
             } else {
                 marker.setLatLng([y, x]);
             }
-            map.setView([y, x], 13);
-            syncLocation(y, x);
+            map.setView([y, x], 18); // Default zoom for address search
+            syncLocation(y, x, true, false);
         } else {
             alert("No results found for the provided location");
         }
@@ -1400,6 +1792,7 @@ function calculateTime(distance, velocity) {
         "walk": 6,  // km/h
         "run": 12,  // km/h
         "ride": 19,  // km/h
+        "ride2": 20,  // km/h
         "drive": 50, // km/h
         "fly": 450   // km/h
     };
@@ -1563,7 +1956,7 @@ function movementLoop() {
 
     // Dynamically calculate speed from the frontend selected drop-down
     const currentVelocityStr = typeof velocitySelect !== 'undefined' ? velocitySelect : 'walk';
-    const speedKmh = (currentVelocityStr === 'walk' ? 6 : (currentVelocityStr === 'run' ? 12 : (currentVelocityStr === 'ride' ? 19 : (currentVelocityStr === 'drive' ? 50 : (currentVelocityStr === 'fly' ? 450 : parseFloat(currentVelocityStr) || 18)))));
+    const speedKmh = (currentVelocityStr === 'walk' ? 6 : (currentVelocityStr === 'run' ? 12 : (currentVelocityStr === 'ride' ? 19 : (currentVelocityStr === 'ride2' ? 20 : (currentVelocityStr === 'drive' ? 50 : (currentVelocityStr === 'fly' ? 450 : parseFloat(currentVelocityStr) || 18))))));
 
     const baseStep = (speedKmh / 3600) * (MOVEMENT_LOOP_INTERVAL / 1000) / 111.32; // Approx degrees per interval
     const step = baseStep * joystickState.force;
@@ -1633,7 +2026,11 @@ function populateDeviceList() {
                                 count++;
                                 let displayText = `${connectionType}: ${deviceInfo.DeviceName} - (${deviceInfo.DeviceClass} - iOS: ${deviceInfo.ProductVersion})`;
                                 
-                                let isConnected = connectedUdids.includes(udid);
+                                let isConnected = false;
+                                if (statusData.connected_map && statusData.connected_map[udid]) {
+                                    let internalConnType = (connectionType === 'Wifi' || connectionType === 'Manual Wifi') ? 'Network' : connectionType;
+                                    isConnected = statusData.connected_map[udid].includes(internalConnType);
+                                }
                                 let jsonVal = JSON.stringify(deviceInfo).replace(/'/g, "&#39;");
 
                                 var div = document.createElement('div');
@@ -1930,6 +2327,42 @@ function stopLocation() {
         });
 }
 
+// Function to check global connection and reconnection status
+async function checkConnectionStatus() {
+    try {
+        const response = await fetch('/connection_status');
+        const data = await response.json();
+        
+        const reconnectingUdids = data.reconnecting_udids || [];
+        const reconnectOverlay = document.getElementById('reconnectOverlay');
+        
+        if (reconnectingUdids.length > 0) {
+            isReconnecting = true;
+            if (reconnectOverlay) reconnectOverlay.style.display = 'block';
+            
+            // Update icons in device list if visible
+            reconnectingUdids.forEach(udid => {
+                // Try to find any icons for this UDID
+                const icons = document.querySelectorAll(`[id^="icon_${udid}_"]`);
+                icons.forEach(icon => {
+                    icon.className = 'fas fa-sync-alt reconnecting-icon text-warning';
+                });
+            });
+        } else {
+            if (isReconnecting) {
+                isReconnecting = false;
+                if (reconnectOverlay) reconnectOverlay.style.display = 'none';
+                // Trigger a refresh of the device list to restore icons
+                populateDeviceList();
+            }
+        }
+        
+    } catch (error) {
+        console.error('Error checking connection status:', error);
+    }
+}
+
+
 // Function to enable or disable the Set Location button based on conditions
 function updateSetLocationButtonStatus() {
     var setLocationButton = document.getElementById('set-location');
@@ -1954,12 +2387,27 @@ function exitApp() {
         $('#aboutModal').modal('hide');
         $('#shutdownModal').modal('show');
 
-        // Use navigator.sendBeacon to make the POST request without waiting for a response
         const data = JSON.stringify({});
-        navigator.sendBeacon('/exit', data);
-        window.open('', '_self', ''); window.close();
+        
+        // Use fetch with keepalive to ensure the request is sent even if the page closes
+        fetch('/exit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: data,
+            keepalive: true
+        }).catch(err => console.debug('Exit fetch error (expected if server shuts down quickly):', err));
 
-        console.log('POST request sent using sendBeacon');
+        // Use navigator.sendBeacon as a secondary method
+        navigator.sendBeacon('/exit', data);
+
+        console.log('Exit request sent');
+
+        // Delay window closing slightly to allow the beacon/fetch to be initiated
+        setTimeout(() => {
+            window.open('', '_self', ''); 
+            window.close();
+        }, 500);
+
     } catch (error) {
         console.error('Error during server shutdown:', error);
     }
@@ -2146,6 +2594,9 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     });
 
+    // Start connection status polling
+    setInterval(checkConnectionStatus, 3000);
+
 
 
 
@@ -2277,7 +2728,11 @@ function useFavorite(lat, lng) {
         if (typeof marker !== 'undefined' && marker) {
             marker.setLatLng([lat, lng]);
         } else if (typeof L !== 'undefined') {
-            marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+            marker = L.marker([lat, lng], { 
+                draggable: true,
+                icon: blueDotIcon 
+            }).addTo(map);
+
             if (typeof handleMarkerDragEnd === 'function') {
                 marker.on('dragend', handleMarkerDragEnd);
             }
@@ -2382,6 +2837,1051 @@ function importFavoritesFromExcel(event) {
         } catch (error) {
             console.error("Error parsing Excel file", error);
             alert("Error reading Excel file. Make sure it has 'Name' and 'Location' columns.");
+        }
+        
+        // Reset file input
+        event.target.value = '';
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+// --- Path Management Functionality ---
+const PATH_STORAGE_KEY = 'geoport_paths';
+let pathData = [];
+let pathLayersMap = new Map(); // id -> Polyline
+let activePathId = null; // Track which path is "Loaded/Active"
+let expandedPathAreas = new Set();
+
+function savePaths() {
+    localStorage.setItem(PATH_STORAGE_KEY, JSON.stringify(pathData));
+}
+
+function loadPaths() {
+    try {
+        pathData = JSON.parse(localStorage.getItem(PATH_STORAGE_KEY)) || [];
+    } catch (e) {
+        pathData = [];
+    }
+    
+    // Reset visibility to false on startup (per user request)
+    pathData.forEach(p => p.visible = false);
+    
+    renderPathSidebar();
+    applyPathVisibility();
+}
+
+async function saveActivePathFromDrawing() {
+    // Prioritize storage from the current manual drawing buffer (green path)
+    const pointsToSave = (manualDrawingPoints && manualDrawingPoints.length >= 2) 
+        ? manualDrawingPoints 
+        : lineLatLngs;
+
+    if (!pointsToSave || pointsToSave.length < 2) {
+        displayToast("Please draw a path or select an existing one first.");
+        return;
+    }
+
+    const firstPoint = pointsToSave[0];
+    const { area } = await getAreaInfo(firstPoint[0], firstPoint[1]);
+    
+    const id = Date.now().toString();
+    const newPath = {
+        id: id,
+        name: "New Path",
+        area: area || "Unknown Area",
+        points: JSON.parse(JSON.stringify(pointsToSave)), // Deep copy
+        visible: true
+    };
+
+    pathData.push(newPath);
+    savePaths();
+    
+    // Clear drawing points after saving so user can start fresh
+    if (pointsToSave === manualDrawingPoints) {
+        manualDrawingPoints = [];
+        drawnItems.clearLayers(); // Clean the green lines
+    }
+
+    renderPathSidebar();
+    applyPathVisibility(); // NEW: Refresh map to show the new gray path immediately
+    
+    // Open edit modal for the new path
+    editItem(id, 'path');
+}
+
+async function importPaths(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    let addedCount = 0;
+    displayToast(`Processing ${files.length} file(s)...`);
+
+    // Standard DOMParser for GPX (XML)
+    const parser = new DOMParser();
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        if (file.name.toLowerCase().endsWith('.zip')) {
+            // ZIP handling using JSZip
+            try {
+                if (typeof JSZip === 'undefined') {
+                    displayToast("JSZip not loaded. Cannot process ZIP.");
+                    continue;
+                }
+                const zip = await JSZip.loadAsync(file);
+                const zipEntries = [];
+                zip.forEach((relPath, entry) => {
+                    if (entry.name.toLowerCase().endsWith('.gpx') && !entry.dir) {
+                        zipEntries.push(entry);
+                    }
+                });
+
+                for (const entry of zipEntries) {
+                    const content = await entry.async("text");
+                    const success = await processGpxContent(content, entry.name, parser);
+                    if (success) addedCount++;
+                }
+            } catch (e) {
+                console.error("Error unzipping", e);
+                displayToast(`Invalid ZIP: ${file.name}`);
+            }
+        } else if (file.name.toLowerCase().endsWith('.gpx')) {
+            // Single GPX handling
+            try {
+                const content = await file.text();
+                const success = await processGpxContent(content, file.name, parser);
+                if (success) addedCount++;
+            } catch (e) {
+                console.error("Error reading GPX", e);
+            }
+        }
+    }
+
+    if (addedCount > 0) {
+        savePaths();
+        renderPathSidebar();
+        applyPathVisibility();
+        displayToast(`Imported ${addedCount} path(s) successfully.`);
+    } else {
+        displayToast("No valid paths found in selected file(s).");
+    }
+    
+    // Reset file input
+    event.target.value = '';
+}
+
+async function processGpxContent(xmlString, fileName, parser) {
+    try {
+        const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+        const trkpts = xmlDoc.querySelectorAll('trkpt, rtept, wpt');
+        
+        if (trkpts.length < 2) return false;
+
+        const points = Array.from(trkpts).map(pt => [
+            parseFloat(pt.getAttribute('lat')),
+            parseFloat(pt.getAttribute('lon'))
+        ]);
+
+        // 1. Try to extract name and suggested area from filename (Format: Area_Name.gpx)
+        let suggestedArea = null;
+        let pathName = "";
+        
+        const cleanFileName = fileName.replace(/\.gpx$/i, '');
+        if (cleanFileName.includes('_')) {
+            const parts = cleanFileName.split('_');
+            suggestedArea = parts[0];
+            pathName = parts.slice(1).join('_').replace(/_/g, ' ');
+        } else {
+            pathName = cleanFileName.replace(/_/g, ' ');
+        }
+
+        // 2. Override name if <name> tag exists in XML
+        const nameTag = xmlDoc.querySelector('name');
+        if (nameTag && nameTag.textContent.trim()) {
+            pathName = nameTag.textContent.trim();
+        }
+
+        // 3. Determine Area group: Filename first, then Geocoding with fallback
+        let area = "Imported";
+        if (suggestedArea && suggestedArea !== "Unknown" && suggestedArea !== "Imported") {
+            area = suggestedArea;
+        } else {
+            // Fallback to coordinates analysis (Nominatim)
+            // Add a small randomized delay to avoid 429 Too Many Requests during bulk import
+            await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
+            const info = await getAreaInfo(points[0][0], points[0][1]);
+            area = info.area || "Imported";
+        }
+
+        pathData.push({
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+            name: pathName,
+            area: area,
+            points: points,
+            visible: true
+        });
+        return true;
+    } catch (e) {
+        console.error("GPX Parse error", e);
+        return false;
+    }
+}
+
+function renderPathSidebar() {
+    const listEl = document.getElementById('pathsList');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '';
+    if (pathData.length === 0) {
+        listEl.innerHTML = '<div class="text-muted small px-1">No paths saved.</div>';
+        return;
+    }
+
+    // Group by area
+    const grouped = {};
+    pathData.forEach(p => {
+        if (!grouped[p.area]) grouped[p.area] = [];
+        grouped[p.area].push(p);
+    });
+
+    Object.keys(grouped).sort().forEach((area, idx) => {
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'flower-group mb-1';
+        const safeAreaId = `path-area-group-${idx}`;
+        const isExpanded = expandedPathAreas.has(area);
+        
+        const allAreaVisible = grouped[area].every(p => p.visible !== false);
+        const areaCheckboxHtml = `<input type="checkbox" class="form-check-input me-2 mt-0" style="position: relative; margin-left: 0;" ${allAreaVisible ? 'checked' : ''} onchange="togglePathAreaVisibility('${area.replace(/'/g, "\\'")}', this.checked)" onclick="event.stopPropagation()">`;
+
+        groupDiv.innerHTML = `
+            <div class="area-header d-flex align-items-center" onclick="togglePathAreaGroup('${area.replace(/'/g, "\\'")}', '${safeAreaId}')">
+                ${areaCheckboxHtml}
+                <span class="flex-grow-1"><i class="fas fa-route me-1 text-info"></i> ${area} (${grouped[area].length})</span>
+                <i class="fas fa-chevron-${isExpanded ? 'up' : 'down'} small" id="icon-${safeAreaId}"></i>
+            </div>
+            <div class="area-content ${isExpanded ? 'show' : ''}" id="${safeAreaId}"></div>
+        `;
+        
+        const contentDiv = groupDiv.querySelector('.area-content');
+        grouped[area].forEach((path, index) => {
+            const item = document.createElement('div');
+            item.className = 'd-flex justify-content-between align-items-center mt-1 pt-1 pb-1 px-2 rounded';
+            item.style.backgroundColor = path.id === activePathId ? 'rgba(61, 139, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)';
+            if (path.id === activePathId) item.style.border = '1px solid #3d8bff';
+
+            const name = path.name || `Path ${index + 1}`;
+            const isVisible = path.visible !== false;
+            const indCheckboxHtml = `<input type="checkbox" class="form-check-input me-2 mt-0" style="position: relative; margin-left: 0;" ${isVisible ? 'checked' : ''} onchange="toggleIndividualPathVisibility('${path.id}', this.checked)">`;
+
+            item.innerHTML = `
+                <div class="d-flex align-items-center flex-grow-1 text-truncate pe-2">
+                    ${indCheckboxHtml}
+                    <div class="text-truncate flex-grow-1" style="cursor: pointer;" onclick="activatePath('${path.id}')" title="${path.points.length} points">${name}</div>
+                </div>
+                <div class="d-flex gap-1">
+                    <button class="btn btn-sm btn-info py-0 px-2" onclick="gotoPath('${path.id}')" title="Go"><i class="fas fa-location-arrow" style="font-size: 0.8rem;"></i></button>
+                    <button class="btn btn-sm btn-secondary py-0 px-2" onclick="editItem('${path.id}', 'path')" title="Edit"><i class="fas fa-pencil-alt" style="font-size: 0.8rem;"></i></button>
+                    <button class="btn btn-sm btn-success py-0 px-2" onclick="exportPathToGPX('${path.id}')" title="Export GPX"><i class="fas fa-file-export" style="font-size: 0.8rem;"></i></button>
+                </div>
+            `;
+            contentDiv.appendChild(item);
+        });
+        listEl.appendChild(groupDiv);
+    });
+}
+
+function toggleAllPaths(isVisible) {
+    pathData.forEach(p => p.visible = isVisible);
+    savePaths();
+    applyPathVisibility();
+}
+
+function togglePathAreaVisibility(area, isVisible) {
+    pathData.forEach(p => {
+        if (p.area === area) p.visible = isVisible;
+    });
+    savePaths();
+    applyPathVisibility();
+}
+
+function toggleIndividualPathVisibility(id, isVisible) {
+    const p = pathData.find(x => x.id === id);
+    if (p) {
+        p.visible = isVisible;
+        savePaths();
+        applyPathVisibility();
+    }
+}
+
+function applyPathVisibility() {
+    // Clear existing preview lines
+    pathLayersMap.forEach(layer => map.removeLayer(layer));
+    pathLayersMap.clear();
+
+    pathData.forEach(p => {
+        const isActive = (p.id === activePathId);
+        // Show if explicitly checked OR if it's the currently selected active path
+        if (p.visible !== false || isActive) {
+            const polyline = L.polyline(p.points, {
+                color: isActive ? '#3d8bff' : '#aaaaaa',
+                weight: isActive ? 5 : 3,
+                opacity: isActive ? 0.8 : 0.4,
+                dashArray: isActive ? '10, 10' : '5, 5',
+                lineJoin: 'round'
+            }).addTo(map);
+            pathLayersMap.set(p.id, polyline);
+        }
+    });
+    renderPathSidebar();
+}
+
+function togglePathAreaGroup(areaName, areaId) {
+    const content = document.getElementById(areaId);
+    if (content) {
+        content.classList.toggle('show');
+        if (content.classList.contains('show')) expandedPathAreas.add(areaName);
+        else expandedPathAreas.delete(areaName);
+        renderPathSidebar();
+    }
+}
+
+function gotoPath(id) {
+    const path = pathData.find(p => p.id === id);
+    if (path && path.points.length > 0) {
+        map.setView(path.points[0], map.getZoom());
+    }
+}
+
+function activatePath(id) {
+    if (activePathId === id) {
+        activePathId = null; // Toggle off
+        lineLatLngs = []; // Clear active playback buffer
+    } else {
+        activePathId = id; // Switch to new active path
+        
+        const path = pathData.find(p => p.id === id);
+        if (path) {
+            // Bridge to the existing playback engine:
+            // Overwrite lineLatLngs with the saved path points
+            lineLatLngs = JSON.parse(JSON.stringify(path.points));
+            
+            // Reset playback states so it starts from the beginning
+            playbackIndex = 0;
+            interpolationStep = 0;
+            currentSegmentPoints = [];
+            
+            // Sync the Playback Button state to 'play' (ready to start)
+            updatePlaybackButtonStates('play');
+        }
+    }
+    
+    // Use applyPathVisibility to refresh the map layers based on visible flags and activePathId
+    applyPathVisibility();
+}
+
+function generateGPXString(path) {
+    let gpx = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    gpx += '<gpx version="1.1" creator="GeoPort" xmlns="http://www.topografix.com/GPX/1/1">\n';
+    gpx += `  <metadata><name>${path.name}</name></metadata>\n`;
+    gpx += '  <trk>\n';
+    gpx += `    <name>${path.name}</name>\n`;
+    gpx += '    <trkseg>\n';
+    
+    path.points.forEach(pt => {
+        gpx += `      <trkpt lat="${pt[0]}" lon="${pt[1]}"></trkpt>\n`;
+    });
+    
+    gpx += '    </trkseg>\n';
+    gpx += '  </trk>\n';
+    gpx += '</gpx>';
+    return gpx;
+}
+
+function exportPathToGPX(id) {
+    const path = pathData.find(p => p.id === id);
+    if (!path) return;
+
+    const gpx = generateGPXString(path);
+    const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${path.name || 'path'}.gpx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+async function exportAllPathsToGPX() {
+    if (pathData.length === 0) {
+        displayToast("No paths to export.");
+        return;
+    }
+
+    if (typeof JSZip === 'undefined') {
+        displayToast("JSZip library not loaded. Please ensure internet access.");
+        return;
+    }
+
+    const zip = new JSZip();
+    const folder = zip.folder("geoport_gpx_export");
+    
+    pathData.forEach(path => {
+        const gpx = generateGPXString(path);
+        // Create a descriptive and safe filename: Area_Name.gpx
+        const filename = `${path.area || 'Unknown'}_${path.name || 'path'}.gpx`
+            .replace(/[\\/:*?"<>|]/g, '_'); // Basic sanitization
+            
+        folder.file(filename, gpx);
+    });
+
+    try {
+        const content = await zip.generateAsync({ type: "blob" });
+        const url = URL.createObjectURL(content);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `geoport_all_paths_${new Date().getTime()}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        displayToast(`Successfully exported ${pathData.length} paths to ZIP.`);
+    } catch (e) {
+        console.error("Error creating ZIP", e);
+        displayToast("Failed to create ZIP package.");
+    }
+}
+
+
+// --- Big Flowers Functionality ---
+const FLOWERS_STORAGE_KEY = 'geoport_flowers';
+let flowerData = [];
+let flowerMarkersMap = new Map(); // id -> { marker, circle }
+let expandedFlowersAreas = new Set(); // Track which groups are expanded
+
+// Cache for geocoding results to prevent redundant API calls
+let lastGeocodeInfo = {
+    lat: null,
+    lng: null,
+    result: null,
+    timestamp: 0
+};
+
+async function getAreaInfo(lat, lng) {
+    // 1. Check Cache: If coordinates are within 5m and less than 60s old
+    if (lastGeocodeInfo.lat !== null && lastGeocodeInfo.result) {
+        const dist = L.latLng(lat, lng).distanceTo(L.latLng(lastGeocodeInfo.lat, lastGeocodeInfo.lng));
+        const age = Date.now() - lastGeocodeInfo.timestamp;
+        if (dist < 5 && age < 60000) {
+            console.log("Geocoding: Using cache for", lat, lng);
+            return lastGeocodeInfo.result;
+        }
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+
+    try {
+        const url = `/api/reverse-geocode?lat=${lat}&lon=${lng}`;
+        const response = await fetch(url, { 
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const data = await response.json();
+        if (data && data.address) {
+            // prioritize district, suburb, town, city
+            const area = data.address.town || data.address.suburb || data.address.city_district || data.address.city || data.address.county || 'Unknown Area';
+            const country = data.address.country || '';
+            const city = data.address.city || data.address.town || data.address.state || '';
+            
+            const result = { 
+                area: area, 
+                displayName: data.display_name,
+                country: country,
+                city: city
+            };
+            
+            // Update cache
+            lastGeocodeInfo = { lat, lng, result, timestamp: Date.now() };
+            return result;
+        }
+    } catch (e) {
+        clearTimeout(timeoutId);
+        if (e.name === 'AbortError') {
+            console.warn("Reverse geocoding timed out");
+        } else {
+            console.error("Reverse geocoding failed", e);
+        }
+    }
+    return { area: 'Unknown Area', displayName: 'Unknown Address', country: '', city: '' };
+}
+
+let addressUpdateTimeout = null;
+async function updateAddressInfo(lat, lng) {
+    const addressDisplay = document.getElementById('addressDisplay');
+    const locationDisplay = document.getElementById('locationDisplay');
+    if (!addressDisplay && !locationDisplay) return;
+    
+    // Clear previous pending update
+    if (addressUpdateTimeout) clearTimeout(addressUpdateTimeout);
+    
+    // Set a debounce: Only update if the user stops moving for 800ms
+    addressUpdateTimeout = setTimeout(async () => {
+        if (addressDisplay) {
+            addressDisplay.style.display = 'block';
+            addressDisplay.innerText = 'Loading address...';
+        }
+        
+        const info = await getAreaInfo(lat, lng);
+        
+        // Update Timezone Data based on new location
+        updateSimulatedTimeData(lat, lng);
+        
+        // Update Bottom Bar
+        if (addressDisplay) {
+            const shortAddress = info.displayName.split(',').slice(0, 3).join(',');
+            addressDisplay.innerText = shortAddress;
+        }
+
+        // Update Sidebar Environment Info
+        if (locationDisplay) {
+            if (info.country && info.city) {
+                locationDisplay.innerText = `${info.country}, ${info.city}`;
+            } else if (info.country || info.city) {
+                locationDisplay.innerText = info.country || info.city;
+            } else {
+                locationDisplay.innerText = 'Unknown';
+            }
+        }
+    }, 800);
+}
+
+async function addBigFlower(lat, lng, save = true, preFetchedArea = null, id = null, name = null, forceShowEdit = false) {
+    let area = preFetchedArea;
+    if (!area && save) {
+        const info = await getAreaInfo(lat, lng);
+        area = info.area;
+    } else if (!area) {
+        area = 'Unknown Area';
+    }
+
+    const flowerId = id || Date.now().toString() + Math.floor(Math.random()*1000);
+    const flowerName = name || 'Big Flower';
+
+    // Create marker
+    const marker = L.marker([lat, lng], { icon: flowerIcon });
+    
+    // Create 40m circle
+    const circle = L.circle([lat, lng], {
+        color: '#ffb6c1',
+        fillColor: '#ffffff',
+        fillOpacity: 0.2,
+        radius: 40,
+        className: 'planting-range'
+    });
+    
+    // Context menu for deletion
+    marker.bindPopup(`<b>${area} ${flowerName}</b>`);
+
+    flowerMarkersMap.set(flowerId, { marker, circle });
+
+    if (save) {
+        flowerData.push({ id: flowerId, lat: lat, lng: lng, area: area, name: flowerName, visible: true, areaVisible: true });
+        saveFlowers();
+    }
+    
+    if (typeof applyFlowerVisibility === 'function') {
+        applyFlowerVisibility();
+    } else {
+        marker.addTo(flowerLayerGroup);
+        circle.addTo(flowerLayerGroup);
+        renderFlowerSidebar();
+    }
+
+    if (save && forceShowEdit) {
+        currentEditingIsNew = true;
+        editItem(flowerId, 'flower');
+    }
+}
+
+function applyFlowerVisibility() {
+    flowerLayerGroup.clearLayers();
+    
+    flowerData.forEach(f => {
+        if (f.visible !== false) {
+            const objs = flowerMarkersMap.get(f.id);
+            if (objs) {
+                objs.marker.addTo(flowerLayerGroup);
+                objs.circle.addTo(flowerLayerGroup);
+            }
+        }
+    });
+    
+    renderFlowerSidebar();
+}
+
+function toggleAllFlowers(isVisible) {
+    flowerData.forEach(f => {
+        f.visible = isVisible;
+    });
+    saveFlowers();
+    applyFlowerVisibility();
+}
+
+function toggleAreaVisibility(area, isVisible) {
+    flowerData.forEach(f => {
+        if(f.area === area) {
+            f.visible = isVisible;
+        }
+    });
+    saveFlowers();
+    applyFlowerVisibility();
+}
+
+function toggleIndividualVisibility(id, isVisible) {
+    const f = flowerData.find(x => x.id === id);
+    if(f) {
+        f.visible = isVisible;
+        saveFlowers();
+        applyFlowerVisibility();
+    }
+}
+
+function editItem(id, type = 'flower') {
+    const editIdInput = document.getElementById('editFlowerId');
+    const editTypeInput = document.getElementById('editItemType');
+    const editNameInput = document.getElementById('editFlowerName');
+    const editAreaSelect = document.getElementById('editFlowerAreaSelect');
+    const editAreaCustom = document.getElementById('editFlowerAreaCustom');
+    const modalTitle = document.getElementById('editFlowerModalLabel');
+    const nameLabel = document.getElementById('editItemNameLabel');
+
+    if (!editIdInput || !editNameInput || !editAreaSelect) return;
+
+    editIdInput.value = id;
+    editTypeInput.value = type;
+    editAreaCustom.value = '';
+    
+    let item;
+    if (type === 'path') {
+        item = pathData.find(p => p.id === id);
+        modalTitle.innerHTML = '<i class="fas fa-route me-2"></i>Edit Path';
+        nameLabel.innerText = 'Path Name';
+    } else {
+        item = flowerData.find(f => f.id === id);
+        modalTitle.innerHTML = '<i class="fas fa-edit me-2"></i>Edit Big Flower';
+        nameLabel.innerText = 'Flower Name';
+    }
+
+    if (!item) return;
+
+    editNameInput.value = item.name || '';
+    
+    // Populate Area dropdown
+    editAreaSelect.innerHTML = '<option value="">-- Select Existing Group --</option>';
+    const uniqueAreas = new Set();
+    flowerData.forEach(f => uniqueAreas.add(f.area));
+    pathData.forEach(p => uniqueAreas.add(p.area));
+    
+    const sortedAreas = Array.from(uniqueAreas).sort();
+    sortedAreas.forEach(area => {
+        const option = document.createElement('option');
+        option.value = area;
+        option.text = area;
+        if (area === item.area) option.selected = true;
+        editAreaSelect.appendChild(option);
+    });
+
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('editFlowerModal'));
+    modal.show();
+}
+
+function saveFlowerEdit() {
+    const id = document.getElementById('editFlowerId').value;
+    const type = document.getElementById('editItemType').value;
+    const nameInput = document.getElementById('editFlowerName').value.trim();
+    const selectedArea = document.getElementById('editFlowerAreaSelect').value;
+    const customArea = document.getElementById('editFlowerAreaCustom').value.trim();
+
+    const finalArea = customArea || selectedArea || "Unknown Area";
+    const finalName = nameInput || (type === 'path' ? "New Path" : "Big Flower");
+
+    if (type === 'path') {
+        const path = pathData.find(p => p.id === id);
+        if (path) {
+            path.name = finalName;
+            path.area = finalArea;
+            savePaths();
+            renderPathSidebar();
+        }
+    } else {
+        const flower = flowerData.find(f => f.id === id);
+        if (flower) {
+            flower.name = finalName;
+            flower.area = finalArea;
+            saveFlowers();
+            
+            // Update map popup
+            const objs = flowerMarkersMap.get(id);
+            if (objs) {
+                objs.marker.getPopup().setContent(`<b>${finalArea} ${finalName}</b>`);
+            }
+            applyFlowerVisibility();
+        }
+    }
+
+    const modal = bootstrap.Modal.getInstance(document.getElementById('editFlowerModal'));
+    if (modal) modal.hide();
+    currentEditingIsNew = false;
+}
+
+function deleteFromEditModal() {
+    const id = document.getElementById('editFlowerId').value;
+    const type = document.getElementById('editItemType').value;
+
+    if (type === 'path') {
+        pathData = pathData.filter(p => p.id !== id);
+        if (activePathId === id) {
+            pathLayersMap.forEach(layer => map.removeLayer(layer));
+            pathLayersMap.clear();
+            activePathId = null;
+        }
+        savePaths();
+        renderPathSidebar();
+        applyPathVisibility(); // NEW: Clear the gray line from the map immediately
+    } else {
+        removeFlower(id, true);
+    }
+
+    const modal = bootstrap.Modal.getInstance(document.getElementById('editFlowerModal'));
+    if (modal) modal.hide();
+    currentEditingIsNew = false;
+}
+
+function cancelFlowerEdit() {
+    if (currentEditingIsNew) {
+        const id = document.getElementById('editFlowerId').value;
+        const type = document.getElementById('editItemType').value;
+        if (type === 'path') {
+            pathData = pathData.filter(p => p.id !== id);
+            savePaths();
+            renderPathSidebar();
+        } else {
+            removeFlower(id, true);
+        }
+    }
+    currentEditingIsNew = false;
+}
+
+function removeFlower(id, skipConfirm = false) {
+    const objs = flowerMarkersMap.get(id);
+    if (objs) {
+        flowerLayerGroup.removeLayer(objs.marker);
+        flowerLayerGroup.removeLayer(objs.circle);
+        flowerMarkersMap.delete(id);
+    }
+    
+    flowerData = flowerData.filter(f => f.id !== id);
+    saveFlowers();
+    if (typeof applyFlowerVisibility === 'function') applyFlowerVisibility();
+    else renderFlowerSidebar();
+    return true;
+}
+
+function saveFlowers() {
+    localStorage.setItem(FLOWERS_STORAGE_KEY, JSON.stringify(flowerData));
+}
+
+function loadFlowers() {
+    try {
+        flowerData = JSON.parse(localStorage.getItem(FLOWERS_STORAGE_KEY)) || [];
+    } catch (e) {
+        flowerData = [];
+    }
+
+    // Clear existing
+    flowerLayerGroup.clearLayers();
+    flowerMarkersMap.clear();
+
+    // Re-add to map
+    flowerData.forEach(f => {
+        if (f.visible === undefined) f.visible = true;
+        addBigFlower(f.lat, f.lng, false, f.area, f.id, f.name);
+    });
+
+    if (typeof applyFlowerVisibility === 'function') applyFlowerVisibility();
+    else renderFlowerSidebar();
+}
+
+function renderFlowerSidebar() {
+    const listEl = document.getElementById('flowersList');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '';
+    if (flowerData.length === 0) {
+        listEl.innerHTML = '<div class="text-muted small px-1">No Big Flowers placed.</div>';
+        return;
+    }
+
+    // Group by area
+    const grouped = {};
+    flowerData.forEach(f => {
+        if (!grouped[f.area]) grouped[f.area] = [];
+        grouped[f.area].push(f);
+    });
+
+    Object.keys(grouped).sort().forEach((area, idx) => {
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'flower-group mb-1';
+        
+        const safeAreaId = `flower-area-group-${idx}`;
+        
+        // Restore expanded state using Area Name
+        const isExpanded = expandedFlowersAreas.has(area);
+        
+        const allAreaVisible = grouped[area].every(f => f.visible !== false);
+        const areaCheckboxHtml = `<input type="checkbox" class="form-check-input me-2 mt-0" style="position: relative; margin-left: 0;" ${allAreaVisible ? 'checked' : ''} onchange="toggleAreaVisibility('${area}', this.checked)" onclick="event.stopPropagation()">`;
+        
+        groupDiv.innerHTML = `
+            <div class="area-header d-flex align-items-center" onclick="toggleAreaGroup('${area.replace(/'/g, "\\'")}', '${safeAreaId}')">
+                ${areaCheckboxHtml}
+                <span class="flex-grow-1"><i class="fas fa-leaf me-1 text-success"></i> ${area} (${grouped[area].length})</span>
+                <i class="fas fa-chevron-${isExpanded ? 'up' : 'down'} small" id="icon-${safeAreaId}"></i>
+            </div>
+            <div class="area-content ${isExpanded ? 'show' : ''}" id="${safeAreaId}">
+                <!-- items -->
+            </div>
+        `;
+        
+        const contentDiv = groupDiv.querySelector('.area-content');
+        grouped[area].forEach((fav, index) => {
+            const item = document.createElement('div');
+            item.className = 'd-flex justify-content-between align-items-center mt-1 pt-1 pb-1 px-2 rounded';
+            item.style.backgroundColor = 'rgba(0, 0, 0, 0.2)';
+            const label = fav.name || `Flower ${index + 1}`;
+            
+            const isVisible = fav.visible !== false;
+            const indCheckboxHtml = `<input type="checkbox" class="form-check-input me-2 mt-0" style="position: relative; margin-left: 0;" ${isVisible ? 'checked' : ''} onchange="toggleIndividualVisibility('${fav.id}', this.checked)">`;
+
+            item.innerHTML = `
+                <div class="d-flex align-items-center flex-grow-1 text-truncate pe-2">
+                    ${indCheckboxHtml}
+                    <div class="text-truncate" title="${fav.lat.toFixed(4)}, ${fav.lng.toFixed(4)}">${label}</div>
+                </div>
+                <div class="d-flex gap-1">
+                    <button class="btn btn-sm btn-primary py-0 px-2" onclick="useFavorite(${fav.lat}, ${fav.lng})" title="Go"><i class="fas fa-location-arrow" style="font-size: 0.8rem;"></i></button>
+                    <button class="btn btn-sm btn-secondary py-0 px-2" onclick="editItem('${fav.id}', 'flower')" title="Edit"><i class="fas fa-pencil-alt" style="font-size: 0.8rem;"></i></button>
+                </div>
+            `;
+            contentDiv.appendChild(item);
+        });
+        
+        listEl.appendChild(groupDiv);
+    });
+}
+
+function toggleAreaGroup(areaName, areaId) {
+    const content = document.getElementById(areaId);
+    const icon = document.getElementById(`icon-${areaId}`);
+    if (content) {
+        content.classList.toggle('show');
+        const isNowShown = content.classList.contains('show');
+        
+        // Store expanded state using AREA NAME for robustness
+        if (isNowShown) {
+            expandedFlowersAreas.add(areaName);
+        } else {
+            expandedFlowersAreas.delete(areaName);
+        }
+
+        if (icon) {
+            if (isNowShown) {
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-up');
+            } else {
+                icon.classList.remove('fa-chevron-up');
+                icon.classList.add('fa-chevron-down');
+            }
+        }
+    }
+}
+
+// --- Local Clock Management ---
+let simulatedTimeData = {
+    timeZone: null,
+    gmtOffset: null,
+    isEstimate: false
+};
+
+async function updateSimulatedTimeData(lat, lng) {
+    try {
+        const response = await fetch(`/api/get-timezone?lat=${lat}&lon=${lng}`);
+        if (response.ok) {
+            const data = await response.json();
+            simulatedTimeData = {
+                timeZone: data.timeZone,
+                gmtOffset: data.offset,
+                isEstimate: data.isEstimate
+            };
+        }
+    } catch (e) {
+        console.warn("Could not retrieve simulated timezone", e);
+    }
+}
+
+function updateLocalClock() {
+    const display = document.getElementById('localTimeDisplay');
+    const warning = document.getElementById('timeWarning');
+    if (!display) return;
+    
+    let now = new Date();
+    let displayTime;
+
+    try {
+        if (simulatedTimeData.timeZone) {
+            // Precise Timezone (API Success)
+            const options = { 
+                timeZone: simulatedTimeData.timeZone,
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hour12: false 
+            };
+            // Format to YYYY/MM/DD HH:MM:SS
+            const parts = new Intl.DateTimeFormat('en-ZA', options).formatToParts(now);
+            const p = parts.reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+            displayTime = `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}:${p.second}`;
+        } else if (simulatedTimeData.gmtOffset !== null) {
+            // Manual Offset (Fallback / Estimate)
+            // Calculate time manually: UTC + Offset
+            const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+            const simTime = new Date(utc + (3600000 * simulatedTimeData.gmtOffset));
+            
+            const dateStr = simTime.getFullYear() + '/' + 
+                            String(simTime.getMonth() + 1).padStart(2, '0') + '/' + 
+                            String(simTime.getDate()).padStart(2, '0');
+            const timeStr = String(simTime.getHours()).padStart(2, '0') + ':' + 
+                            String(simTime.getMinutes()).padStart(2, '0') + ':' + 
+                            String(simTime.getSeconds()).padStart(2, '0');
+            displayTime = `${dateStr} ${timeStr}`;
+        } else {
+            // System Time (Initial or Error)
+            const dateStr = now.getFullYear() + '/' + 
+                            String(now.getMonth() + 1).padStart(2, '0') + '/' + 
+                            String(now.getDate()).padStart(2, '0');
+            const timeStr = String(now.getHours()).padStart(2, '0') + ':' + 
+                            String(now.getMinutes()).padStart(2, '0') + ':' + 
+                            String(now.getSeconds()).padStart(2, '0');
+            displayTime = `${dateStr} ${timeStr}`;
+        }
+    } catch (e) {
+        console.error("Clock formatting error", e);
+        displayTime = "Error";
+    }
+    
+    display.innerText = displayTime;
+    
+    // Show warning if it's an estimate
+    if (warning) {
+        if (simulatedTimeData.isEstimate) warning.classList.remove('d-none');
+        else warning.classList.add('d-none');
+    }
+}
+
+// Ensure data loads on startup
+document.addEventListener('DOMContentLoaded', () => {
+    loadFlowers();
+    loadPaths();
+    
+    // Initial Timezone Sync (assuming center of map or current marker)
+    const initialLat = 23.97565;
+    const initialLng = 120.9738819;
+    lastConfirmedLatLng = L.latLng(initialLat, initialLng);
+    updateSimulatedTimeData(initialLat, initialLng);
+
+    // Start the clock
+    updateLocalClock();
+    setInterval(updateLocalClock, 1000);
+});
+
+
+// Flower Excel Export function
+function exportFlowersToExcel() {
+    if (typeof XLSX === 'undefined') {
+        alert("SheetJS library not loaded.");
+        return;
+    }
+    
+    if (flowerData.length === 0) {
+        alert("No Big Flowers to export.");
+        return;
+    }
+
+    const data = flowerData.map(f => ({
+        Area: f.area || "Unknown",
+        Location: `${f.lat}, ${f.lng}`,
+        Name: f.name || "Big Flower"
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "BigFlowers");
+    XLSX.writeFile(workbook, "big_flowers.xlsx");
+}
+
+// Flower Excel Import function
+function importFlowersFromExcel(event) {
+    if (typeof XLSX === 'undefined') {
+        alert("SheetJS library not loaded.");
+        return;
+    }
+    
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        const data = e.target.result;
+        try {
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const json = XLSX.utils.sheet_to_json(worksheet);
+
+            let addedCount = 0;
+
+            for (const row of json) {
+                if (row.Location) {
+                    const strLocation = String(row.Location).trim();
+                    const coordsMatch = strLocation.match(/([-+]?[0-9]*\.?[0-9]+)[\s,]+([-+]?[0-9]*\.?[0-9]+)/);
+                    if (coordsMatch) {
+                        const lat = parseFloat(coordsMatch[1]);
+                        const lng = parseFloat(coordsMatch[2]);
+                        const area = row.Area ? String(row.Area).trim() : null;
+                        const name = row.Name ? String(row.Name).trim() : null;
+                        
+                        // Check for duplicate matching lat, lng
+                        const isDuplicate = flowerData.some(f => f.lat === lat && f.lng === lng);
+                        
+                        if (!isDuplicate) {
+                            await addBigFlower(lat, lng, true, area, null, name);
+                            addedCount++;
+                        }
+                    }
+                }
+            }
+
+            if (addedCount > 0) {
+                alert(`Imported ${addedCount} Big Flowers successfully.`);
+            } else {
+                alert("No new valid flowers found to import (or all were duplicates).");
+            }
+            
+        } catch (error) {
+            console.error("Error parsing Excel file", error);
+            alert("Error reading Excel file. Make sure it has 'Location' columns.");
         }
         
         // Reset file input
