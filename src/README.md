@@ -32,12 +32,18 @@ iOS 位置模擬工具，專為需要靈活控制地理位置的開發者與測�
 ---
 
 ## 🚀 快速上手教學
+<img width="1912" height="911" alt="介面" src="https://github.com/user-attachments/assets/98c705ee-22a2-4013-bde1-5cbc5d5ec585" />
+
 
 ### 第一步：連接設備
+<img width="284" height="135" alt="連線" src="https://github.com/user-attachments/assets/f6210028-31ed-43cb-808c-e72a2d2e3ac1" />
+
 1. 確保您的 iOS 設備與電腦在同一網路環境，或透過 USB 連接。
 2. 在 **Device Connection** 面板點擊設備旁的插頭圖示進行配對。
 
 ### 第二步：設定座標
+<img width="280" height="391" alt="定位" src="https://github.com/user-attachments/assets/ca8901c7-2ec9-4d10-85ad-a0f7493a161c" />
+
 1. 您可以透過 **Location Control** 搜尋座標，或直接在地圖上**雙擊滑鼠**來放置藍色定位點。
 2. 檢查側邊欄 **Environment**，確認當地時間與區域資訊是否正確。
 
@@ -46,7 +52,9 @@ iOS 位置模擬工具，專為需要靈活控制地理位置的開發者與測�
 2. 若需微調位置，可使用面板中央的**搖桿**進行操作。
 
 ### 第四步：路徑與工具欄操作
-地圖側邊提供豐富的工具列（參考圖片 1）：
+<img width="54" height="419" alt="功能欄" src="https://github.com/user-attachments/assets/3b6685ae-a6ad-481a-bad7-4340bab98c84" />
+
+地圖側邊提供豐富的工具列：
 *   **雲端上傳/下載**：批次匯入與導出 GPX 檔案或路徑資料包。
 *   **🟢 綠色播放按鈕 (Drawing Playback)**：用於播放您目前正在地圖上「即時繪製」的綠色暫存路徑。這適合在正式儲存前先進行測試。
 *   **🔵 藍色播放按鈕 (Saved Playback)**：用於播放您從側邊欄選中的「已儲存路徑」（地圖上顯示為虛線藍色）。
@@ -55,4 +63,4 @@ iOS 位置模擬工具，專為需要靈活控制地理位置的開發者與測�
 *   **速度調整**：點擊底部速度標籤（如 6 km/h）切換不同的移動模式（步行、騎車、開車）。
 
 ---
-*註：這是一個預發佈版本 (Pre-release)，僅供早期測試與開發者參考使用。*
+
