@@ -1,0 +1,925 @@
+:root {
+    --background-gradient: linear-gradient(160deg, #1a2980, #1a8e8b);
+    --glass-background: rgba(255, 255, 255, 0.15);
+    --glass-border: rgba(255, 255, 255, 0.2);
+    --text-color: #ffffff;
+    --accent-color: #4ecdc4;
+    --sidebar-width: 380px;
+    --card-bg: rgba(255, 255, 255, 0.1);
+    --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --sidebar-transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+
+/* Glassmorphism for Leaflet Controls */
+.leaflet-bar, .leaflet-control-layers {
+    background: var(--glass-background) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    border: 1px solid var(--glass-border) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1) !important;
+    overflow: hidden;
+}
+
+.leaflet-bar a, .leaflet-bar button, .leaflet-bar select, .leaflet-control-speed input, .leaflet-control-layers-toggle {
+    background-color: transparent !important;
+    color: #333 !important;
+    border-bottom: 1px solid rgba(0,0,0,0.1) !important;
+    border-top: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    transition: all 0.3s ease !important;
+    outline: none !important;
+    box-shadow: none !important;
+    width: 48px !important;    /* Even larger width */
+    height: 48px !important;   /* Even larger height */
+    line-height: 48px !important;
+    font-size: 24px !important; /* Huge icon */
+    font-weight: 700 !important; /* Bold for readability */
+    text-shadow: none !important; /* Remove shadow for dark text */
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.leaflet-bar select, .leaflet-control-speed input {
+    font-size: 11px !important;
+    letter-spacing: -0.5px !important;
+}
+
+/* Hide number input spin buttons */
+.leaflet-control-speed input::-webkit-outer-spin-button,
+.leaflet-control-speed input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.leaflet-control-speed input[type=number] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.leaflet-bar a:hover, .leaflet-bar button:hover {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+    color: var(--accent-color) !important;
+}
+
+.dark-mode .leaflet-bar, .dark-mode .leaflet-control-layers {
+    background: rgba(30, 30, 30, 0.5) !important;
+    border-color: rgba(100, 100, 100, 0.3) !important;
+}
+
+.dark-mode .leaflet-bar a, .dark-mode .leaflet-bar button, .dark-mode .leaflet-bar select, .dark-mode .leaflet-control-speed input {
+    color: #f4f4f4 !important;
+    border-bottom: 1px solid rgba(100, 100, 100, 0.3) !important;
+}
+
+.dark-mode .leaflet-bar a:hover, .dark-mode .leaflet-bar button:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    color: var(--accent-color) !important;
+}
+
+/* Remove bottom border from last element */
+.leaflet-bar a:last-child, .leaflet-bar button:last-child {
+    border-bottom: none !important;
+}
+
+/* Dual Playback Button Overrides - Only Icon Color */
+.btn-playback-green i {
+    color: rgba(40, 167, 69, 1) !important;
+}
+.btn-playback-blue i {
+    color: rgba(0, 123, 255, 1) !important;
+}
+
+/* Speed Control specific style */
+.leaflet-control-speed {
+    background: var(--glass-background);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 12px 16px; /* Huge padding */
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    color: var(--text-color);
+    display: flex;
+    align-items: center;
+    gap: 16px; /* Huge gap */
+    font-size: 20px; /* Huge base font size */
+    font-weight: 700;
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.dark-mode .leaflet-control-speed {
+    background: rgba(30, 30, 30, 0.5);
+    border-color: rgba(100, 100, 100, 0.3);
+}
+
+.leaflet-control-speed label {
+    margin: 0;
+    font-weight: 600;
+}
+
+.leaflet-control-speed select {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-color);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    outline: none;
+    padding: 8px 12px; /* Huge padding */
+    cursor: pointer;
+    font-size: 18px; /* Huge font size */
+    font-weight: 700;
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.dark-mode .leaflet-control-speed select {
+    background: rgba(0, 0, 0, 0.2);
+    border-color: rgba(100, 100, 100, 0.3);
+}
+
+.leaflet-control-speed select option {
+    background: #fff;
+    color: #000;
+}
+.dark-mode .leaflet-control-speed select option {
+    background: #333;
+    color: #fff;
+}
+
+/* Map styling removed here, using layout version below */
+
+.coordinates-container {
+    margin-top: 10px;
+}
+
+
+.marker-menu {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    padding: 10px;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.menu-item {
+    background-color: #f8f9fa;
+    border: none;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background-color 0.3s;
+}
+
+.menu-item:hover {
+    background-color: #e9ecef;
+}
+
+/* Jump to Current Location Button */
+.jump-to-marker-btn {
+    position: fixed;
+    bottom: 25px;
+    right: 25px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: rgba(30, 30, 40, 0.82) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: var(--accent-color) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 1.4rem !important;
+    cursor: pointer !important;
+    z-index: 1000 !important;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+.jump-to-marker-btn:hover {
+    background: var(--accent-color) !important;
+    color: #fff !important;
+    transform: scale(1.1) rotate(90deg);
+    box-shadow: 0 12px 40px rgba(78, 205, 196, 0.4) !important;
+}
+
+.jump-to-marker-btn:active {
+    transform: scale(0.92);
+}
+
+/* Custom popup styling */
+.custom-popup-content {
+    width: 300px;
+    /* Adjust the width as needed */
+}
+
+.time-to-next-point-control-container {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+}
+
+/* Hide EasyButton containers entirely to drop duplicates */
+.leaflet-bar.easy-button-container.leaflet-control {
+    display: none;
+}
+
+/* Custom CSS to make layer control button smaller */
+.leaflet-control-layers-toggle {
+    width: 48px !important;
+    height: 48px !important;
+    background-size: 32px !important; /* Adjust size */
+}
+
+
+
+
+
+
+
+
+
+
+/* Dark Mode Variant */
+.dark-mode {
+    --background-gradient: linear-gradient(135deg, #121212 0%, #333333 100%);
+    --glass-background: rgba(50, 50, 50, 0.2);
+    --glass-border: rgba(100, 100, 100, 0.125);
+    --text-color: #f4f4f4;
+    --accent-color: #4ecdc4;
+}
+
+
+
+
+
+html,
+body {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: var(--background-gradient);
+    font-family: 'Poppins', 'Inter', sans-serif;
+    overflow: hidden;
+    color: var(--text-color);
+    transition: all 0.3s ease;
+}
+
+.app-wrapper {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+}
+
+#sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    height: 100%;
+    background: var(--glass-background);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid var(--glass-border);
+    overflow-y: auto;
+    z-index: 1000;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.2);
+    transition: var(--sidebar-transition);
+}
+
+#sidebar.collapsed {
+    transform: translateX(-100%);
+}
+
+.sidebar-toggle-mobile {
+    display: none;
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    z-index: 1001;
+    background: var(--glass-background);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    color: white;
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+}
+
+.sidebar-close-btn {
+    display: none;
+}
+
+/* Custom Scrollbar for Sidebar */
+#sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+#sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+}
+
+#sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.map-container {
+    flex: 1;
+    height: 100%;
+    position: relative;
+    background: #000;
+}
+
+#map {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+}
+
+.container {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    backdrop-filter: none;
+    box-shadow: none;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+}
+
+/* Map styling removed here */
+
+.btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(8px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 12px;
+    font-weight: 500;
+    padding: 0.6rem 1.2rem;
+}
+
+.btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    border-color: var(--accent-color);
+    color: white;
+}
+
+.btn-danger {
+    background: rgba(220, 53, 69, 0.2);
+    border-color: rgba(220, 53, 69, 0.3);
+}
+
+.btn-danger:hover {
+    background: rgba(220, 53, 69, 0.4);
+    border-color: #dc3545;
+}
+
+/* Keep the rest of the form controls' background consistent */
+.form-control,
+.form-select,
+.custom-select,
+select {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    border-radius: 12px;
+    backdrop-filter: blur(4px);
+}
+
+/* Dark mode styles for form controls */
+.dark-mode .form-control,
+.dark-mode .form-select,
+.dark-mode .custom-select,
+.dark-mode select {
+    background: rgba(50, 50, 50, 0.1);
+    color: var(--text-color);
+}
+
+.form-control::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.form-select option,
+select option {
+    background-color: #2c2c2c;
+    color: #ffffff;
+}
+
+.modal-content {
+    background: var(--glass-background);
+    border-radius: 16px;
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+    color: var(--text-color);
+}
+
+.glassmorphic-card {
+    border-radius: 12px;
+    color: var(--text-color);
+    margin-bottom: 20px;
+}
+
+.alert.glassmorphic-card {
+    background: var(--glass-background);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    color: var(--text-color);
+    position: relative;
+    overflow: hidden;
+}
+
+.alert.alert-info.glassmorphic-card {
+    background: rgba(61, 130, 247, 0.2);
+    /* Soft blue for info alerts */
+    border-color: rgba(61, 130, 247, 0.3);
+}
+
+.alert.alert-warning.glassmorphic-card {
+    background: rgba(255, 193, 7, 0.2);
+    /* Soft yellow for warning alerts */
+    border-color: rgba(255, 193, 7, 0.3);
+}
+
+.alert.alert-danger.glassmorphic-card {
+    background: rgba(220, 53, 69, 0.2);
+    /* Soft red for danger alerts */
+    border-color: rgba(220, 53, 69, 0.3);
+}
+
+.alert.alert-success.glassmorphic-card {
+    background: rgba(25, 135, 84, 0.2);
+    /* Soft green for success alerts */
+    border-color: rgba(25, 135, 84, 0.3);
+}
+
+.form-check-input:checked {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+}
+
+/* Utility classes for smooth transitions */
+.transition {
+    transition: all 0.3s ease;
+}
+
+/* Basic hyperlink styling */
+a {
+    color: #4ecdc4;
+    /* Use your accent color */
+    text-decoration: none;
+    transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+
+/* Hover effect */
+a:hover {
+    color: #a0e0d5;
+    /* Light, contrasting shade for better readability */
+    text-decoration: underline;
+    text-shadow: 0 0 5px rgba(78, 205, 196, 0.5);
+}
+
+/* Visited links */
+a:visited {
+    color: #3b9b98;
+    /* Slightly darker shade for visited links */
+}
+
+#loc-search {
+    border: none;
+    /* Remove the border */
+}
+
+/* Light Mode Toasts */
+.toast {
+    background: rgba(255, 255, 255, 0.15);
+    /* Light glassmorphic background */
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    /* Light border */
+    color: var(--text-color);
+    /* White text in light mode */
+    backdrop-filter: blur(6px);
+    /* Add blur effect for glassmorphism */
+    border-radius: 8px;
+    /* Rounded corners */
+}
+
+.toast-header {
+    background: rgba(255, 255, 255, 0.1);
+    /* Lighter background for the header */
+    color: var(--text-color);
+    /* White text for the header */
+    font-weight: bold;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.toast-body {
+    background: rgba(255, 255, 255, 0.1);
+    /* Light background for the body */
+    color: var(--text-color);
+    /* White text for the body */
+}
+
+/* Dark Mode Toasts */
+.dark-mode .toast {
+    background: rgba(50, 50, 50, 0.3);
+    /* Dark glassmorphic background */
+    border: 1px solid rgba(100, 100, 100, 0.3);
+    /* Dark border */
+    color: var(--text-color);
+    /* Light text in dark mode */
+}
+
+.dark-mode .toast-header {
+    background: rgba(50, 50, 50, 0.3);
+    /* Dark header */
+    color: var(--text-color);
+    /* White text in dark mode */
+    font-weight: bold;
+    border-bottom: 1px solid rgba(100, 100, 100, 0.3);
+    /* Dark border for header */
+}
+
+.dark-mode .toast-body {
+    background: rgba(50, 50, 50, 0.2);
+    /* Dark body background */
+    color: var(--text-color);
+    /* White text for body */
+}
+
+/* Utility class for the close button */
+.toast .btn-close {
+    filter: invert(1);
+    /* Make the close button white in both modes */
+}
+
+/* Optional: Toast color variants for different types (Success, Info, Warning, Danger) */
+
+/* Success Toast */
+.toast-success {
+    background: rgba(25, 135, 84, 0.3);
+    /* Soft green background */
+    border: 1px solid rgba(25, 135, 84, 0.4);
+}
+
+/* Info Toast */
+.toast-info {
+    background: rgba(61, 130, 247, 0.3);
+    /* Soft blue background */
+    border: 1px solid rgba(61, 130, 247, 0.4);
+}
+
+/* Warning Toast */
+.toast-warning {
+    background: rgba(255, 193, 7, 0.3);
+    /* Soft yellow background */
+    border: 1px solid rgba(255, 193, 7, 0.4);
+}
+
+/* Danger Toast */
+.toast-danger {
+    background: rgba(220, 53, 69, 0.3);
+    /* Soft red background */
+    border: 1px solid rgba(220, 53, 69, 0.4);
+}
+
+/* Utility class for smooth transitions */
+.transition {
+    transition: all 0.3s ease;
+}
+
+/* Disabled state for the #connect button */
+#connect:disabled {
+    background: rgba(40, 167, 69, 0.3);
+    /* Brighter green background with more opacity */
+    border: 2px solid #34c759;
+    /* Vibrant green border (similar to Apple's green) */
+    color: #34c759;
+    /* Matching green text color */
+    cursor: not-allowed;
+    /* Change cursor to indicate disabled state */
+}
+
+
+/* Default btn style for #disconnect button */
+#disconnect {
+    background: rgba(220, 53, 69, 0.15);
+    /* Soft red background when disabled */
+    border: 2px solid #dc3545;
+    /* Red border when disabled */
+    color: #dc3545;
+    /* Red text color */
+    cursor: not-allowed;
+    /* Change cursor to indicate disabled state */
+}
+
+/* Default btn style for #exit button */
+#exit-btn {
+    background: rgba(220, 53, 69, 0.25);
+    /* Darker soft red background when disabled */
+    border: 2px solid #c82333;
+    /* Darker red border */
+    color: #c82333;
+    /* Darker red text color */
+    cursor: not-allowed;
+    /* Change cursor to indicate disabled state */
+}
+
+.joystick-map-combined-container {
+    display: none !important;
+}
+
+#joystick-wrapper {
+    width: 100%;
+    height: 180px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    backdrop-filter: blur(5px);
+    overflow: hidden;
+}
+
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.sidebar-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.5px;
+}
+
+.sidebar-section {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    transition: all 0.3s ease;
+}
+
+.sidebar-section:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-section-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--accent-color);
+    margin-bottom: 0.25rem;
+    opacity: 0.9;
+}
+
+#dataList {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 0.75rem;
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 0.5rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 12px;
+}
+
+/* Fix for Leaflet controls: map is flexed next to sidebar, so we only need a small offset */
+.leaflet-left {
+    left: 10px !important;
+}
+
+/* Transitions for dark mode */
+.dark-mode #sidebar {
+    background: rgba(20, 20, 20, 0.8);
+}
+
+#joystick-zone {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    #sidebar {
+        position: fixed;
+        width: 85%;
+        max-width: 320px;
+        height: 100%;
+        left: 0;
+        top: 0;
+    }
+
+    .sidebar-toggle-mobile {
+        display: flex;
+    }
+
+    .sidebar-close-btn {
+        display: inline-flex;
+    }
+
+    #sidebar.collapsed {
+        transform: translateX(-100%);
+    }
+
+    .leaflet-left {
+        left: 20px !important;
+        transition: left 0.3s ease;
+    }
+
+    #sidebar:not(.collapsed) ~ .map-container .leaflet-left {
+        left: 340px !important; /* Move map controls when sidebar is open */
+    }
+}
+
+/* Google Maps style blue dot marker */
+.blue-dot-container, .orange-dot-container {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.blue-dot, .orange-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+    position: relative;
+    z-index: 1000;
+}
+
+.blue-dot {
+    background-color: #4285f4;
+}
+
+.orange-dot {
+    background-color: #ff9800;
+    width: 12px; /* Slightly smaller for path points */
+    height: 12px;
+}
+
+.blue-dot::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    right: -3px;
+    bottom: -3px;
+    border-radius: 50%;
+    background: rgba(66, 133, 244, 0.3);
+    animation: pulse-ring 2s cubic-bezier(0.25, 0.5, 0.2, 1) infinite;
+    z-index: -1;
+}
+
+@keyframes pulse-ring {
+    0% {
+        transform: scale(0.5);
+        opacity: 0.8;
+    }
+    80%, 100% {
+        transform: scale(2.5);
+        opacity: 0;
+    }
+}
+
+/* Pikmin Bloom style Big Flower */
+.flower-dot-container {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.flower-dot {
+    background-color: #ffb6c1; /* Light pink core */
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 3px solid #8fce00; /* Green border like leaves */
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+    position: relative;
+    z-index: 1000;
+}
+
+/* Base style for the 40m circle (handled mostly by Leaflet options, but can be targeted via path) */
+.planting-range {
+    pointer-events: none; /* Make sure it doesn't block map clicks */
+}
+
+/* Collapsible Area Headers */
+.area-header {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 4px 8px;
+    margin-bottom: 2px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background 0.2s ease;
+}
+
+.area-header:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.dark-mode .area-header {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.dark-mode .area-header:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.area-content {
+    padding-left: 10px;
+    display: none; /* hidden by default */
+}
+
+.area-content.show {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Address Display */
+.address-display {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.8) !important;
+    line-height: 1.2;
+}
+
+.dark-mode .address-display {
+    color: rgba(255, 255, 255, 0.6) !important;
+}
+/* Reconnection Overlay */
+.reconnect-overlay {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    pointer-events: none;
+}
+
+.reconnect-content {
+    background: rgba(220, 53, 69, 0.9);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 30px;
+    font-weight: 600;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    animation: reconnectSlideDown 0.3s ease-out;
+}
+
+@keyframes reconnectSlideDown {
+    from { transform: translate(-50%, -100%); opacity: 0; }
+    to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+.reconnecting-icon {
+    animation: fa-spin 2s infinite linear;
+}

@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/html">
+
+<head>
+    <title>GeoPort - Online Update</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script src="https://cdn.jsdelivr.net/npm/babel-polyfill@latest/dist/polyfill.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/whatwg-fetch@3.6.2/dist/fetch.umd.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.10.2/dist/umd/popper.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-providers@2.0.0/leaflet-providers.min.js"></script>
+    <script src="https://unpkg.com/leaflet-geosearch@3.0.0/dist/geosearch.umd.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-gpx/1.7.0/gpx.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
+    <script
+        src='https://api.tiles.mapbox.com/mapbox.js/plugins/leaflet-omnivore/v0.3.1/leaflet-omnivore.min.js'></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-filelayer@1.2.0/src/leaflet.filelayer.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-easybutton@2.4.0/src/easy-button.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.0/dist/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <!-- Google Maps JS API -->
+    <script>(g => {
+            var h, a, k, p = "The Google Maps JavaScript API", c = "google", l = "importLibrary", q = "__ib__", m = document, b = window; b = b[c] || (b[c] = {}); var d = b.maps || (b.maps = {}), r = new Set, e = new URLSearchParams, u = () => h || (h = new Promise(async (f, n) => {
+                await (a = m.createElement("script")); e.set("libraries", [...r] + ""); for (k in g) e.set(k.replace(/[A-Z]/g, t => "_" + t[0].toLowerCase()), g[k]); e.set("callback", c + ".maps." + q); a.src = `https://maps.${c}apis.com/maps/api/js?` + e; d[q] = f; a.onerror = () => h = n(Error(p + " could not load.")); a.nonce = m.querySelector("script[nonce]")?.nonce || ""; m.head.append(a)
+            })); d[l] ? console.warn(p + " only loads once. Ignoring:", g) : d[l] = (f, ...n) => r.add(f) && u().then(() => d[l](f, ...n))
+        })
+            ({ key: "{{ google_maps_api_key }}", v: "weekly" });</script>
+    <script>
+        // Ensure the maps library is loaded for plugins that expect it
+        google.maps.importLibrary("maps").then(() => {
+            console.log("Google Maps library loaded successfully.");
+        });
+    </script>
+
+    <!-- Leaflet.GoogleMutant -->
+    <script src="https://unpkg.com/leaflet.gridlayer.googlemutant@latest/dist/Leaflet.GoogleMutant.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        crossorigin="anonymous">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-geosearch@3.0.0/dist/geosearch.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+    <link href="https://cdn.jsdelivr.net/npm/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.css"
+        rel="stylesheet">
+    <link href="https://cdn.lineicons.com/4.0/lineicons.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/leaflet-easybutton@2.4.0/src/easy-button.min.css" rel="stylesheet">
+
+    <!-- External CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/map2.css') }}">
+</head>
+
+<!-- Inject Jinja2 template variables into JS config -->
+<script>
+    window.APP_CONFIG = {
+        app_version_num: "{{ app_version_num }}",
+        app_version_type: "{{ app_version_type }}",
+        current_platform: "{{ current_platform }}",
+        user_locale: "{{ user_locale }}",
+        sudo_message: "{{ sudo_message }}",
+        app_version: "{{ app_version_num }}",
+        google_maps_api_key: "{{ google_maps_api_key }}"
+    };
+</script>
+
+<!-- External JavaScript -->
+<script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.1/dist/nipplejs.min.js"></script>
+<script src="{{ url_for('static', filename='js/map2.js') }}"></script>
+
+
+
+<body class="dark-mode">
+    <button class="sidebar-toggle-mobile" onclick="toggleSidebar()">
+        <i class="fas fa-bars"></i>
+    </button>
+    <div id="reconnectOverlay" class="reconnect-overlay" style="display: none;">
+        <div class="reconnect-content">
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            連線遺失，正在自動重連中... (Connecting...)
+        </div>
+    </div>
+    <div class="app-wrapper">
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">Location Simulator</div>
+                <div class="d-flex gap-2 align-items-center">
+                    <a id="about-btn" class="btn btn-sm" href="#" title="GeoPort" style="display: none;">About</a>
+                    <button class="btn btn-sm sidebar-close-btn" onclick="toggleSidebar()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                    <a id="exit-btn" class="btn btn-sm btn-danger" href="#" title="Exit App"
+                        onclick="exitApp()">Exit</a>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Environment</div>
+                <div class="d-flex flex-column gap-2">
+                    <div class="form-check form-switch ms-4">
+                        <input class="form-check-input" type="checkbox" role="switch" id="darkModeSwitch"
+                            onchange="toggleDarkMode()" checked>
+                        <label class="form-check-label" for="darkModeSwitch">Dark Mode</label>
+                    </div>
+                    <!-- New: Local Time Display -->
+                    <div class="ms-4 d-flex align-items-center gap-2 mt-1 opacity-75">
+                        <i class="fas fa-map-marker-alt" style="font-size: 0.8rem;"></i>
+                        <span id="locationDisplay" class="fw-bold" style="font-size: 0.85rem;">
+                            --
+                        </span>
+                        <div style="border-left: 1px solid rgba(255,255,255,0.3); height: 12px; margin-left: 4px; margin-right: 4px;"></div>
+                        <i class="fas fa-clock" style="font-size: 0.8rem;"></i>
+                        <span id="localTimeDisplay" style="font-size: 0.85rem; font-family: 'Courier New', Courier, monospace; letter-spacing: 0.5px;">
+                            --/--/-- --:--:--
+                        </span>
+                        <span id="timeWarning" class="text-warning small d-none" title="Estimated time based on longitude. May be inaccurate.">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </span>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="sidebar-section" id="connection-section">
+                <div class="sidebar-section-title">Device Connection</div>
+                {% if error_messages %}
+                <div class="alert alert-danger p-2 small">{{ error_messages }}</div>
+                <button type="button" class="btn w-100" id="connect" onclick="connectDevice()" disabled>
+                    <span id="connectText">Connect Device</span>
+                </button>
+                {% else %}
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label small mb-0">Select Devices:</label>
+                        <button type="button" class="btn btn-sm btn-outline-light border-0 py-0 px-2 opacity-75" id="refresh" onclick="populateDeviceList()" title="Refresh">
+                            <i class="fas fa-sync-alt" style="font-size: 0.8rem;"></i>
+                        </button>
+                    </div>
+                    <div id="deviceChecklist" class="d-flex flex-column gap-1" style="max-height: 150px; overflow-y: auto;">
+                        <div class="text-muted small px-1">Refreshing devices...</div>
+                    </div>
+                    <select id="connection" style="display: none;"></select>
+                </div>
+                {% endif %}
+            </div>
+
+
+
+            <div class="sidebar-section" id="paths-section">
+                <!-- Row 1: Title and I/O utilities -->
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <div class="sidebar-section-title mb-0">Saved Paths</div>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75" onclick="document.getElementById('importPathsInput').click()" title="Import GPX/ZIP"><i class="fas fa-file-import" style="font-size: 0.8rem;"></i></button>
+                        <input type="file" id="importPathsInput" accept=".gpx, .zip" style="display: none;" multiple onchange="importPaths(event)">
+                        <span class="ms-1 opacity-25">|</span>
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75" onclick="exportAllPathsToGPX()" title="Export All (ZIP)"><i class="fas fa-file-archive" style="font-size: 0.8rem;"></i></button>
+                    </div>
+                </div>
+                <!-- Row 2: Visibility and Creation controls -->
+                <div class="d-flex gap-1 mb-2">
+                    <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 flex-grow-1" onclick="toggleAllPaths(true)" title="Show All">
+                        <i class="fas fa-check-circle me-1" style="font-size: 0.8rem;"></i><small>Show All</small>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 flex-grow-1" onclick="toggleAllPaths(false)" title="Hide All">
+                        <i class="fas fa-times-circle me-1" style="font-size: 0.8rem;"></i><small>Hide All</small>
+                    </button>
+                    <span class="mx-1 opacity-25">|</span>
+                    <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 flex-grow-2" onclick="saveActivePathFromDrawing()" title="Save Current Draw">
+                        <i class="fas fa-save me-1" style="font-size: 0.8rem;"></i><small>Save Drawing</small>
+                    </button>
+                </div>
+                <!-- Teleport Mode Controls -->
+                <div class="d-flex align-items-center gap-2 mb-2 px-1">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="teleportEnabled" onchange="toggleTeleport()">
+                        <label class="form-check-label small" for="teleportEnabled" style="font-size: 0.75rem;">瞬移模式 (Teleport)</label>
+                    </div>
+                    <div id="teleportConfig" style="display: none;" class="align-items-center gap-1">
+                        <span class="small opacity-75" style="font-size: 0.75rem;">每</span>
+                        <input type="number" id="teleportInterval" class="form-control form-control-sm py-0 px-1" style="width: 40px; height: 20px; font-size: 0.75rem; background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.2);" value="5" min="1">
+                        <span class="small opacity-75" style="font-size: 0.75rem;">點瞬移，後停</span>
+                        <input type="number" id="teleportWaitTime" class="form-control form-control-sm py-0 px-1" style="width: 40px; height: 20px; font-size: 0.75rem; background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.2);" value="0" min="0">
+                        <span class="small opacity-75" style="font-size: 0.75rem;">秒</span>
+                    </div>
+                </div>
+                <div id="pathsList" class="d-flex flex-column gap-1" style="max-height: 200px; overflow-y: auto;">
+                    <div class="text-muted small px-1">No paths saved.</div>
+                </div>
+            </div>
+
+            <div class="sidebar-section" id="favorites-section">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="sidebar-section-title mb-0">Saved Locations</div>
+                    <div>
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75" onclick="document.getElementById('importFavoritesInput').click()" title="Import Excel"><i class="fas fa-file-import" style="font-size: 0.8rem;"></i></button>
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 ms-1" onclick="exportFavoritesToExcel()" title="Export Excel"><i class="fas fa-file-export" style="font-size: 0.8rem;"></i></button>
+                        <input type="file" id="importFavoritesInput" accept=".xlsx, .xls" style="display: none;" onchange="importFavoritesFromExcel(event)">
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <div class="input-group">
+                        <input type="text" class="form-control form-control-sm" id="favoriteName" placeholder="Name this location">
+                        <button class="btn btn-sm" id="addFavoriteBtn" onclick="addFavorite()"><i class="fas fa-star"></i> Save</button>
+                    </div>
+                </div>
+                <div id="favoritesList" class="d-flex flex-column gap-1" style="max-height: 150px; overflow-y: auto;">
+                    <!-- Items populated by JS -->
+                </div>
+            </div>
+
+            <div class="sidebar-section" id="flowers-section">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="sidebar-section-title mb-0">Big Flowers</div>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75" onclick="toggleAllFlowers(true)" title="Show All"><i class="fas fa-check-double" style="font-size: 0.8rem;"></i></button>
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 ms-1" onclick="toggleAllFlowers(false)" title="Hide All"><i class="fas fa-times-circle" style="font-size: 0.8rem;"></i></button>
+                        <span class="ms-2 opacity-25">|</span>
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75" onclick="document.getElementById('importFlowersInput').click()" title="Import Excel"><i class="fas fa-file-import" style="font-size: 0.8rem;"></i></button>
+                        <button class="btn btn-sm btn-outline-light py-0 px-2 opacity-75 ms-1" onclick="exportFlowersToExcel()" title="Export Excel"><i class="fas fa-file-export" style="font-size: 0.8rem;"></i></button>
+                        <input type="file" id="importFlowersInput" accept=".xlsx, .xls" style="display: none;" onchange="importFlowersFromExcel(event)">
+                    </div>
+                </div>
+                <div id="flowersList" class="d-flex flex-column gap-2" style="max-height: 250px; overflow-y: auto; padding-right: 5px;">
+                    <!-- Items populated by JS -->
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Location Control</div>
+                <div class="mb-3">
+                    <label for="coordinates" class="form-label small">Coordinates / Search:</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control form-control-sm" id="coordinates">
+                        <button type="button" class="btn btn-sm" id="search" onclick="handleSearch()">Search</button>
+                    </div>
+                    <div id="addressDisplay" class="address-display mt-1 text-muted small px-1" style="display: none;"></div>
+                </div>
+
+                <div id="joystick-wrapper" class="mb-3">
+                    <div id="joystick-zone"></div>
+                </div>
+
+                <div class="row g-2">
+                    <div class="col-6">
+                        <button type="button" class="btn btn-sm w-100" id="set-location" disabled
+                            onclick="setLocation()">Simulate</button>
+                    </div>
+                    <div class="col-6">
+                        <button type="button" class="btn btn-sm w-100" id="stop-location" disabled
+                            onclick="stopLocation()">Stop</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- <div id="dataList"></div> -->
+
+            {% if timeout_message %}
+            <div class="alert alert-warning p-2 small mt-auto" role="alert">{{ timeout_message }}</div>
+            {% endif %}
+            {% if error_message %}
+            <div class="alert alert-danger p-2 small mt-2" role="alert">{{ error_message }}</div>
+            {% endif %}
+        </aside>
+
+        <main class="map-container">
+            <div id="map"></div>
+            <!-- Floating Jump Button -->
+            <div class="jump-to-marker-btn" title="Jump to Current Location" onclick="jumpToCurrentLocation()">
+                <i class="fas fa-crosshairs"></i>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal fade" id="shutdownModal" tabindex="-1" role="dialog" aria-labelledby="shutdownModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="shutdownModalLabel">Server Shutdown</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">Thank you for using the app!</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="aboutModal" tabindex="-1" role="dialog" aria-labelledby="aboutModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="aboutModalLabel">GeoPort</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">App Version: {{ app_version_num }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="developerModeModal" tabindex="-1" role="dialog" aria-labelledby="devModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="developerModeModal">Developer Mode</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>The device is enabled with a passcode </p>
+                    Developer Mode is required and cannot be enabled
+                    <p>Please temporarily disable your passcode and</p>
+                    try to connect again
+                    <p>Enabling Developer Mode is only required one-time.</p>
+                </div>
+                <div class="modal-footer d-flex justify-content-center">
+                    <button type="button" class="btn btn-secondary mx-auto" data-bs-dismiss="modal"
+                        onclick="window.location.href = '/'">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="pairRecordModal" tabindex="-1" role="dialog" aria-labelledby="pairRecordModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="pairRecordModalLabel">No Pair Record</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Pair Record Not Found</p>
+                    Please use a USB Cable to create a Pair Record
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
+                        onclick="window.location.href = '/'">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Flower Modal -->
+    <div class="modal fade" id="editFlowerModal" tabindex="-1" aria-labelledby="editFlowerModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content glassmorphic-card">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editFlowerModalLabel"><i class="fas fa-edit me-2"></i>Edit Item</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editFlowerId">
+                    <input type="hidden" id="editItemType" value="flower"> <!-- NEW: 'flower' or 'path' -->
+                    <div class="mb-3">
+                        <label for="editFlowerName" class="form-label small opacity-75" id="editItemNameLabel">Name</label>
+                        <input type="text" class="form-control" id="editFlowerName" placeholder="Enter name...">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editFlowerAreaSelect" class="form-label small opacity-75">Select Group (Admin District)</label>
+                        <select class="form-select" id="editFlowerAreaSelect">
+                            <!-- Populated via JS -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editFlowerAreaCustom" class="form-label small opacity-75">Or Create New Group</label>
+                        <input type="text" class="form-control" id="editFlowerAreaCustom" placeholder="New area name...">
+                    </div>
+                </div>
+                <div class="modal-footer d-flex justify-content-between">
+                    <button type="button" class="btn btn-danger" onclick="deleteFromEditModal()"><i class="fas fa-trash-alt me-1"></i>Delete</button>
+                    <div>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="cancelFlowerEdit()">Cancel</button>
+                        <button type="button" class="btn btn-primary" onclick="saveFlowerEdit()">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="developerModeRequiredModal" tabindex="-1" role="dialog"
+        aria-labelledby="developerModeRequiredModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="developerModeRequiredModalLabel">Developer Mode Required</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Developer mode is not enabled</p>
+                    GeoPort will now attempt to enable Developer Mode
+                    <p>Your device will reboot</p>
+                    OK to proceed<br>
+                    Cancel to return home
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
+                        onclick="continueAfterDeveloperModeRequired()">OK</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
+                        onclick="cancelAfterDeveloperModeRequired()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalTimeout" tabindex="-1" role="dialog" aria-labelledby="modalTimeout"
+        aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTimeout">Connect Timeout</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <p>Unable to create device tunnel within 60 seconds</p>
+                    <p>Please try to connect again</p>
+                </div>
+                <div class="modal-footer d-flex justify-content-center">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
+                        onclick="window.location.href = '/'">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="developerError" tabindex="-1" role="dialog" aria-labelledby="developerErrorLabel"
+        aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="developerErrorLabel">Developer Error</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <p id="developerErrorMessage"></p>
+                </div>
+                <div class="modal-footer d-flex justify-content-center">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
+                        onclick="window.location.href = '/'">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="dayCrossingModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="dayCrossingLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title" id="dayCrossingLabel">
+                        <i class="fas fa-exclamation-triangle me-2"></i>明日跨日警告
+                    </h5>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <p class="mb-2">目標位置相對於您目前的時間已經進入<b>「明天」</b>。</p>
+                    <p id="dayCrossingDetails" class="fw-bold mb-4"></p>
+                    <p class="text-warning mb-0" style="font-weight: 700; font-size: 0.95rem;">
+                         <i class="fas fa-info-circle me-1"></i> 切換至未來日期可能會影響時間相關的地點事件或獎勵<br>(如：蘑菇次數、社群日等)。
+                    </p>
+                </div>
+                <div class="modal-footer flex-column border-top-0">
+                    <div class="d-flex w-100 gap-2 mb-2">
+                        <button type="button" class="btn btn-warning flex-grow-1" onclick="confirmDayCrossing()" style="font-weight: 700;">確認前往</button>
+                    </div>
+                    <div class="d-flex w-100 gap-2 mb-3">
+                        <button type="button" class="btn btn-outline-light flex-grow-1" onclick="stayAtPreview()">取消，停留在預覽位置</button>
+                        <button type="button" class="btn btn-secondary flex-grow-1" onclick="cancelDayCrossing()">取消，返回原位置</button>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="ignoreDayCrossingCheck">
+                        <label class="form-check-label small" for="ignoreDayCrossingCheck">
+                            在本次使用中不再提示
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toasts -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="liveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <strong class="me-auto text-dark">LocationSimulator</strong>
+                <small>Just Now</small>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body">{{ data }}</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('collapsed');
+            
+            // Adjust Leaflet map after sidebar movement
+            if (window.map) {
+                setTimeout(() => {
+                    window.map.invalidateSize();
+                }, 300);
+            }
+        }
+
+        // Auto-collapse sidebar on mobile initially
+        if (window.innerWidth <= 768) {
+            document.getElementById('sidebar').classList.add('collapsed');
+        }
+    </script>
+</body>
+
+</html>
